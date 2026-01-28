@@ -1,0 +1,11 @@
+# Snowflake Streamlit Native App Requirements
+# Note: streamlit, pandas, numpy, and snowflake-snowpark-python 
+# are pre-installed in Snowflake-hosted environments
+
+# Charts and visualizations
+plotly>=5.18.0
+
+# Local development only (not needed in Snowflake-hosted)
+# Uncomment these for local development:
+# python-dotenv>=1.0.0
+# snowflake-connector-python>=3.6.0

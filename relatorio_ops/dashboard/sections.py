@@ -25,6 +25,22 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _first_existing_col(df: pd.DataFrame, candidates: list[str]) -> str | None:
+    """Return the first column name that exists in df, else None."""
+    for col in candidates:
+        if col in df.columns:
+            return col
+    return None
+
+
+def _as_date_series(s: pd.Series) -> pd.Series:
+    """Best-effort conversion to python date objects."""
+    try:
+        return pd.to_datetime(s, errors="coerce").dt.date
+    except Exception:
+        return s
+
+
 def format_currency(value: float) -> str:
     """Format a number as Brazilian currency."""
     return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -204,19 +220,89 @@ def _render_divergent_values(titulos_divergentes: pd.DataFrame) -> None:
     
     st.warning(f"⚠ {len(titulos_divergentes)} títulos com valores divergentes encontrados.")
     
+    df_tmp = titulos_divergentes.copy()
+
+    # Derive normalized columns (robust to merge suffixing)
+    invoice_anticipated_col = _first_existing_col(df_tmp, ["anticipated_at", "anticipated_at_cashu"])
+    kanastra_entry_col = _first_existing_col(df_tmp, ["anticipation_date_admin", "anticipation_date"])
+
+    invoice_cnpj_col = _first_existing_col(df_tmp, ["nr_gov_id_seller", "nr_gov_id_seller_cashu"])
+    kanastra_cnpj_col = _first_existing_col(df_tmp, ["nr_gov_id_cedent_admin", "nr_gov_id_cedent"])
+
+    invoice_doc_col = _first_existing_col(df_tmp, ["nr_cnab_doc_cashu", "nr_cnab_doc"])
+    kanastra_doc_col = _first_existing_col(df_tmp, ["nr_cnab_doc_admin"])
+
+    invoice_ctrl_col = _first_existing_col(df_tmp, ["nr_cnab_ctrl_cashu", "nr_cnab_ctrl"])
+    kanastra_ctrl_col = _first_existing_col(df_tmp, ["nr_cnab_ctrl_admin"])
+
+    venc_invoice_col = _first_existing_col(df_tmp, ["due_date_cashu", "due_date"])
+    venc_kanastra_col = _first_existing_col(df_tmp, ["due_date_admin"])
+
+    if invoice_anticipated_col:
+        df_tmp["data_antecipacao_invoice"] = _as_date_series(df_tmp[invoice_anticipated_col])
+    if kanastra_entry_col:
+        df_tmp["data_entrada_kanastra"] = _as_date_series(df_tmp[kanastra_entry_col])
+
+    if invoice_cnpj_col:
+        df_tmp["cnpj_emitente_invoice"] = df_tmp[invoice_cnpj_col]
+    if kanastra_cnpj_col:
+        df_tmp["cnpj_emitente_kanastra"] = df_tmp[kanastra_cnpj_col]
+        # Same field requested as "documento do emitente"
+        df_tmp["documento_emitente_kanastra"] = df_tmp[kanastra_cnpj_col]
+
+    if invoice_doc_col:
+        df_tmp["numero_documento_invoice"] = df_tmp[invoice_doc_col]
+    if kanastra_doc_col:
+        df_tmp["numero_documento_kanastra"] = df_tmp[kanastra_doc_col]
+
+    if invoice_ctrl_col:
+        df_tmp["seu_numero_invoice"] = df_tmp[invoice_ctrl_col]
+    if kanastra_ctrl_col:
+        df_tmp["seu_numero_kanastra"] = df_tmp[kanastra_ctrl_col]
+
+    if venc_invoice_col:
+        df_tmp["vencimento_invoice"] = _as_date_series(df_tmp[venc_invoice_col])
+    if venc_kanastra_col:
+        df_tmp["vencimento_kanastra"] = _as_date_series(df_tmp[venc_kanastra_col])
+
     # Select relevant columns for display
     display_cols = [
-        "id_inv_fin_item", "cd_name_slug", "due_date",
-        "amt_total", "amt_future", "amt_net", "amt_acq"
+        "id_inv_fin_item",
+        "cd_name_slug",
+        "data_antecipacao_invoice",
+        "data_entrada_kanastra",
+        "cnpj_emitente_invoice",
+        "cnpj_emitente_kanastra",
+        "documento_emitente_kanastra",
+        "numero_documento_invoice",
+        "numero_documento_kanastra",
+        "seu_numero_invoice",
+        "seu_numero_kanastra",
+        "vencimento_invoice",
+        "vencimento_kanastra",
+        "amt_total",
+        "amt_future",
+        "amt_net",
+        "amt_acq",
     ]
-    available_cols = [c for c in display_cols if c in titulos_divergentes.columns]
-    df_display = titulos_divergentes[available_cols].copy()
+    available_cols = [c for c in display_cols if c in df_tmp.columns]
+    df_display = df_tmp[available_cols].copy()
     
     # Rename columns for better readability
     rename_map = {
         "id_inv_fin_item": "ID Invoice Financing Item",
         "cd_name_slug": "Corporate",
-        "due_date": "Vencimento",
+        "data_antecipacao_invoice": "Data Antecipação (Invoice)",
+        "data_entrada_kanastra": "Data Entrada (Kanastra)",
+        "cnpj_emitente_invoice": "CNPJ Emitente (Invoice)",
+        "cnpj_emitente_kanastra": "CNPJ Emitente (Kanastra)",
+        "documento_emitente_kanastra": "Documento Emitente (Kanastra)",
+        "numero_documento_invoice": "Número Documento (Invoice)",
+        "numero_documento_kanastra": "Número Documento (Kanastra)",
+        "seu_numero_invoice": "Seu Número (Invoice)",
+        "seu_numero_kanastra": "Seu Número (Kanastra)",
+        "vencimento_invoice": "Vencimento (Invoice)",
+        "vencimento_kanastra": "Vencimento (Kanastra)",
         "amt_total": "Valor Face (CashU)",
         "amt_future": "Valor Face (Admin)",
         "amt_net": "Valor Líquido (CashU)",
@@ -227,7 +313,7 @@ def _render_divergent_values(titulos_divergentes: pd.DataFrame) -> None:
     st.dataframe(df_display, use_container_width=True, hide_index=True)
     
     # CSV download
-    csv = df_display.to_csv(index=False, sep=";", decimal=",")
+    csv = df_display.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
     st.download_button(
         label="⬇ Exportar CSV",
         data=csv,
@@ -259,19 +345,45 @@ def _render_cashu_sem_admin(df_cashu_sem_admin: pd.DataFrame) -> None:
     
     st.error(f"✗ {num_titulos} títulos da CashU não encontrados no Sistema do Administrador.")
     
+    df_tmp = df_cashu_sem_admin.copy()
+
+    invoice_anticipated_col = _first_existing_col(df_tmp, ["anticipated_at"])
+    if invoice_anticipated_col:
+        df_tmp["data_antecipacao_invoice"] = _as_date_series(df_tmp[invoice_anticipated_col])
+
+    if "nr_gov_id_seller" in df_tmp.columns:
+        df_tmp["cnpj_emitente_invoice"] = df_tmp["nr_gov_id_seller"]
+    if "nr_cnab_doc" in df_tmp.columns:
+        df_tmp["numero_documento_invoice"] = df_tmp["nr_cnab_doc"]
+    if "nr_cnab_ctrl" in df_tmp.columns:
+        df_tmp["seu_numero_invoice"] = df_tmp["nr_cnab_ctrl"]
+    # Keep column parity across acquisition tables (no Admin/Kanastra match here)
+    df_tmp["documento_emitente_kanastra"] = pd.NA
+
     # Select relevant columns for display
     display_cols = [
-        "id_inv_fin_item", "anticipated_at", "cd_name_slug",
-        "due_date", "amt_total", "amt_net"
+        "id_inv_fin_item",
+        "data_antecipacao_invoice",
+        "cd_name_slug",
+        "cnpj_emitente_invoice",
+        "numero_documento_invoice",
+        "seu_numero_invoice",
+        "due_date",
+        "amt_total",
+        "amt_net",
     ]
-    available_cols = [c for c in display_cols if c in df_cashu_sem_admin.columns]
-    df_display = df_cashu_sem_admin[available_cols].copy()
+    available_cols = [c for c in display_cols if c in df_tmp.columns]
+    df_display = df_tmp[available_cols].copy()
     
     # Rename columns
     rename_map = {
         "id_inv_fin_item": "ID Invoice Financing Item",
-        "anticipated_at": "Data Antecipação",
+        "data_antecipacao_invoice": "Data Antecipação (Invoice)",
         "cd_name_slug": "Corporate",
+        "cnpj_emitente_invoice": "CNPJ Emitente (Invoice)",
+        "numero_documento_invoice": "Número Documento (Invoice)",
+        "seu_numero_invoice": "Seu Número (Invoice)",
+        "documento_emitente_kanastra": "Documento Emitente (Kanastra)",
         "due_date": "Vencimento",
         "amt_total": "Valor Face",
         "amt_net": "Valor Líquido",
@@ -281,7 +393,7 @@ def _render_cashu_sem_admin(df_cashu_sem_admin: pd.DataFrame) -> None:
     st.dataframe(df_display, use_container_width=True, hide_index=True)
     
     # CSV download
-    csv = df_display.to_csv(index=False, sep=";", decimal=",")
+    csv = df_display.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
     st.download_button(
         label="⬇ Exportar CSV",
         data=csv,
@@ -313,19 +425,46 @@ def _render_admin_sem_cashu(df_admin_sem_cashu: pd.DataFrame) -> None:
     
     st.error(f"✗ {num_titulos} títulos do Administrador não encontrados no Sistema CashU.")
     
+    df_tmp = df_admin_sem_cashu.copy()
+    print(df_tmp.columns)
+
+    kanastra_entry_col = _first_existing_col(df_tmp, ["anticipation_date", "ref_date"])
+    if kanastra_entry_col:
+        df_tmp["data_entrada_kanastra"] = _as_date_series(df_tmp[kanastra_entry_col])
+
+    if "nr_gov_id_cedent" in df_tmp.columns:
+        df_tmp["cnpj_emitente_kanastra"] = df_tmp["nr_gov_id_cedent"]
+        df_tmp["documento_emitente_kanastra"] = df_tmp["nr_gov_id_cedent"]
+    if "nr_cnab_doc" in df_tmp.columns:
+        df_tmp["numero_documento_kanastra"] = df_tmp["nr_cnab_doc"]
+    if "nr_cnab_ctrl" in df_tmp.columns:
+        df_tmp["seu_numero_kanastra"] = df_tmp["nr_cnab_ctrl"]
+
     # Select relevant columns for display
     display_cols = [
-        "id_inv_fin_item", "ref_date", "cd_slug_oper", "nm_debtor", "nm_cedent",
-        "due_date", "amt_future", "amt_acq"
+        "id_inv_fin_item",
+        "data_entrada_kanastra",
+        "cd_slug_oper",
+        "cnpj_emitente_kanastra",
+        "numero_documento_kanastra",
+        "seu_numero_kanastra",
+        "nm_cedent",
+        "due_date",
+        "amt_future",
+        "amt_acq",
     ]
-    available_cols = [c for c in display_cols if c in df_admin_sem_cashu.columns]
-    df_display = df_admin_sem_cashu[available_cols].copy()
+    available_cols = [c for c in display_cols if c in df_tmp.columns]
+    df_display = df_tmp[available_cols].copy()
     
     # Rename columns
     rename_map = {
         "id_inv_fin_item": "ID Invoice Financing Item",
-        "ref_date": "Data Aquisição",
+        "data_entrada_kanastra": "Data Entrada (Kanastra)",
         "cd_slug_oper": "Operação",
+        "cnpj_emitente_kanastra": "CNPJ Emitente (Kanastra)",
+        "documento_emitente_kanastra": "Documento Emitente (Kanastra)",
+        "numero_documento_kanastra": "Número Documento (Kanastra)",
+        "seu_numero_kanastra": "Seu Número (Kanastra)",
         "nm_debtor": "Devedor",
         "nm_cedent": "Cedente",
         "due_date": "Vencimento",
@@ -337,7 +476,7 @@ def _render_admin_sem_cashu(df_admin_sem_cashu: pd.DataFrame) -> None:
     st.dataframe(df_display, use_container_width=True, hide_index=True)
     
     # CSV download
-    csv = df_display.to_csv(index=False, sep=";", decimal=",")
+    csv = df_display.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
     st.download_button(
         label="⬇ Exportar CSV",
         data=csv,
@@ -540,18 +679,56 @@ def _render_divergent_liquidations(titulos_divergentes: pd.DataFrame) -> None:
     
     st.warning(f"⚠ {len(titulos_divergentes)} liquidações com valores divergentes encontradas.")
     
+    df_tmp = titulos_divergentes.copy()
+
+    if "nr_gov_id_seller" in df_tmp.columns:
+        df_tmp["cnpj_emitente_invoice"] = df_tmp["nr_gov_id_seller"]
+
+    # CNAB identifiers (both sides, when available)
+    if "nr_cnab_doc_cashu" in df_tmp.columns:
+        df_tmp["numero_documento_cashu"] = df_tmp["nr_cnab_doc_cashu"]
+    elif "nr_cnab_doc" in df_tmp.columns:
+        df_tmp["numero_documento_cashu"] = df_tmp["nr_cnab_doc"]
+    if "nr_cnab_doc_admin" in df_tmp.columns:
+        df_tmp["numero_documento_admin"] = df_tmp["nr_cnab_doc_admin"]
+
+    if "nr_cnab_ctrl_cashu" in df_tmp.columns:
+        df_tmp["seu_numero_cashu"] = df_tmp["nr_cnab_ctrl_cashu"]
+    elif "nr_cnab_ctrl" in df_tmp.columns:
+        df_tmp["seu_numero_cashu"] = df_tmp["nr_cnab_ctrl"]
+    if "nr_cnab_ctrl_admin" in df_tmp.columns:
+        df_tmp["seu_numero_admin"] = df_tmp["nr_cnab_ctrl_admin"]
+
     # Select relevant columns for display
     display_cols = [
-        "id_inv_fin_item", "cd_name_slug", "pymt_date", "pymt_date_cedent",
-        "amt_total", "amt_future", "amt_paid", "amt_pymt", "st_billet", "tp_liquidation"
+        "id_inv_fin_item",
+        "cd_name_slug",
+        "cnpj_emitente_invoice",
+        "numero_documento_cashu",
+        "numero_documento_admin",
+        "seu_numero_cashu",
+        "seu_numero_admin",
+        "pymt_date",
+        "pymt_date_cedent",
+        "amt_total",
+        "amt_future",
+        "amt_paid",
+        "amt_pymt",
+        "st_billet",
+        "tp_liquidation",
     ]
-    available_cols = [c for c in display_cols if c in titulos_divergentes.columns]
-    df_display = titulos_divergentes[available_cols].copy()
+    available_cols = [c for c in display_cols if c in df_tmp.columns]
+    df_display = df_tmp[available_cols].copy()
     
     # Rename columns for better readability
     rename_map = {
         "id_inv_fin_item": "ID Invoice Financing Item",
         "cd_name_slug": "Corporate",
+        "cnpj_emitente_invoice": "CNPJ Emitente (Invoice)",
+        "numero_documento_cashu": "Número Documento (CashU)",
+        "numero_documento_admin": "Número Documento (Admin)",
+        "seu_numero_cashu": "Seu Número (CashU)",
+        "seu_numero_admin": "Seu Número (Admin)",
         "pymt_date": "Data Pgto (CashU)",
         "pymt_date_cedent": "Data Pgto (Admin)",
         "amt_total": "Valor Face (CashU)",
@@ -566,7 +743,7 @@ def _render_divergent_liquidations(titulos_divergentes: pd.DataFrame) -> None:
     st.dataframe(df_display, use_container_width=True, hide_index=True)
     
     # CSV download
-    csv = df_display.to_csv(index=False, sep=";", decimal=",")
+    csv = df_display.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
     st.download_button(
         label="⬇ Exportar CSV",
         data=csv,
@@ -598,20 +775,38 @@ def _render_cashu_liquidations_sem_admin(df_cashu_sem_admin: pd.DataFrame) -> No
     
     st.error(f"✗ {num_titulos} liquidações da CashU não encontradas no Sistema do Administrador.")
     
-    # Select relevant columns for display
+    df_tmp = df_cashu_sem_admin.copy()
+
+    if "nr_gov_id_seller" in df_tmp.columns:
+        df_tmp["cnpj_emitente_invoice"] = df_tmp["nr_gov_id_seller"]
+    if "nr_cnab_doc" in df_tmp.columns:
+        df_tmp["numero_documento_cashu"] = df_tmp["nr_cnab_doc"]
+    if "nr_cnab_ctrl" in df_tmp.columns:
+        df_tmp["seu_numero_cashu"] = df_tmp["nr_cnab_ctrl"]
+
+    # Select relevant columns for display (no Vencimento / Valor Líquido requested for this page)
     display_cols = [
-        "id_inv_fin_item", "cd_name_slug", "pymt_date", "due_date",
-        "amt_total", "amt_paid", "st_billet"
+        "id_inv_fin_item",
+        "cd_name_slug",
+        "cnpj_emitente_invoice",
+        "numero_documento_cashu",
+        "seu_numero_cashu",
+        "pymt_date",
+        "amt_total",
+        "amt_paid",
+        "st_billet",
     ]
-    available_cols = [c for c in display_cols if c in df_cashu_sem_admin.columns]
-    df_display = df_cashu_sem_admin[available_cols].copy()
+    available_cols = [c for c in display_cols if c in df_tmp.columns]
+    df_display = df_tmp[available_cols].copy()
     
     # Rename columns
     rename_map = {
         "id_inv_fin_item": "ID Invoice Financing Item",
         "cd_name_slug": "Corporate",
+        "cnpj_emitente_invoice": "CNPJ Emitente (Invoice)",
+        "numero_documento_cashu": "Número Documento (CashU)",
+        "seu_numero_cashu": "Seu Número (CashU)",
         "pymt_date": "Data Pagamento",
-        "due_date": "Vencimento",
         "amt_total": "Valor Face",
         "amt_paid": "Valor Pago",
         "st_billet": "Status",
@@ -621,7 +816,7 @@ def _render_cashu_liquidations_sem_admin(df_cashu_sem_admin: pd.DataFrame) -> No
     st.dataframe(df_display, use_container_width=True, hide_index=True)
     
     # CSV download
-    csv = df_display.to_csv(index=False, sep=";", decimal=",")
+    csv = df_display.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
     st.download_button(
         label="⬇ Exportar CSV",
         data=csv,
@@ -653,18 +848,35 @@ def _render_admin_liquidations_sem_cashu(df_admin_sem_cashu: pd.DataFrame) -> No
     
     st.error(f"✗ {num_titulos} liquidações do Administrador não encontradas no Sistema CashU.")
     
-    # Select relevant columns for display
+    df_tmp = df_admin_sem_cashu.copy()
+
+    if "nr_cnab_doc" in df_tmp.columns:
+        df_tmp["numero_documento_admin"] = df_tmp["nr_cnab_doc"]
+    if "nr_cnab_ctrl" in df_tmp.columns:
+        df_tmp["seu_numero_admin"] = df_tmp["nr_cnab_ctrl"]
+
+    # Select relevant columns for display (no Vencimento / Valor Líquido requested for this page)
     display_cols = [
-        "id_inv_fin_item", "cd_slug_corp", "pymt_date_cedent", "pymt_info_date",
-        "amt_future", "amt_pymt", "st_inst", "tp_liquidation"
+        "id_inv_fin_item",
+        "cd_slug_corp",
+        "numero_documento_admin",
+        "seu_numero_admin",
+        "pymt_date_cedent",
+        "pymt_info_date",
+        "amt_future",
+        "amt_pymt",
+        "st_inst",
+        "tp_liquidation",
     ]
-    available_cols = [c for c in display_cols if c in df_admin_sem_cashu.columns]
-    df_display = df_admin_sem_cashu[available_cols].copy()
+    available_cols = [c for c in display_cols if c in df_tmp.columns]
+    df_display = df_tmp[available_cols].copy()
     
     # Rename columns
     rename_map = {
         "id_inv_fin_item": "ID Invoice Financing Item",
         "cd_slug_corp": "Corporate",
+        "numero_documento_admin": "Número Documento (Admin)",
+        "seu_numero_admin": "Seu Número (Admin)",
         "pymt_date_cedent": "Data Pgto Cedente",
         "pymt_info_date": "Data Info Pgto",
         "amt_future": "Valor Face",
@@ -677,7 +889,7 @@ def _render_admin_liquidations_sem_cashu(df_admin_sem_cashu: pd.DataFrame) -> No
     st.dataframe(df_display, use_container_width=True, hide_index=True)
     
     # CSV download
-    csv = df_display.to_csv(index=False, sep=";", decimal=",")
+    csv = df_display.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
     st.download_button(
         label="⬇ Exportar CSV",
         data=csv,

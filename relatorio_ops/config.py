@@ -19,6 +19,7 @@ from pathlib import Path
 try:
     from dotenv import load_dotenv
     _env_path = Path(__file__).parent / ".env"
+    load_dotenv('/home/joao/cashu/.env')
     if _env_path.exists():
         load_dotenv(_env_path)
 except ImportError:

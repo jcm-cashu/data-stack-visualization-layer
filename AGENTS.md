@@ -2,7 +2,7 @@
 
 - Only commit when:
 
-1. ALL tests are passing
+1. ALL tests are passing (if defined)
 
 2. ALL compiler/linter warnings have been resolved
 
@@ -23,7 +23,6 @@ When creating a pull request, ensure the description adheres to the following:
 - **Motivation:** Explain the business problem or technical reason behind these changes.
 - **Technical Details:** Briefly describe the key technical changes or architectural decisions.
 - **Testing Notes:** Include any specific instructions for testing the changes.
-- Always run rubocop -A before committing.
 - Always return the github PR link in a clickable way.
 
 # CODE QUALITY STANDARDS

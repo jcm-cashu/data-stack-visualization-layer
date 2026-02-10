@@ -28,7 +28,7 @@ def get_cashu_query(date_start: str, date_end: str) -> str:
         SELECT
             *
         FROM {CASHU_LIQUIDATIONS_TABLE}
-        WHERE anticipated_at::DATE BETWEEN '{date_start}' AND '{date_end}' 
+        WHERE anticipated_at::DATE BETWEEN '{date_start}' AND '{date_end}'  and cd_name_slug <> 'br_aco'
     """
 
 
@@ -36,20 +36,7 @@ def get_admin_query(date_start: str, date_end: str) -> str:
     """Query for Fund Administrator acquisitions."""
     return f"""
         SELECT 
-            ID_BILLET AS id_billet,
-            ID_INV_FIN_ITEM AS id_inv_fin_item,
-            ID_ORD_INST AS id_ord_inst,
-            NR_CNAB_CTRL AS nr_cnab_ctrl,
-            NR_CNAB_DOC AS nr_cnab_doc,
-            REF_DATE::DATE AS anticipation_date,
-            DUE_DATE::DATE AS due_date,
-            CD_SLUG_OPER AS slug_fund,
-            NM_DEBTOR AS nm_seller,
-            NM_CEDENT AS nm_buyer,
-            TP_RECV AS tp_recv,
-            AMT_ACQ AS amt_acq,
-            AMT_FUTURE AS amt_future,
-            HAS_COOBL AS has_coobl
+            *
         FROM {FUND_ACQUISITIONS_TABLE}
         WHERE REF_DATE::DATE BETWEEN '{date_start}' AND '{date_end}'
     """

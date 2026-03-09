@@ -1,12 +1,13 @@
+"""
+Table component - DO NOT MODIFY
+Renders DataFrames with merged headers and interactive sorting.
+"""
 from collections import OrderedDict
 import pandas as pd
 import streamlit.components.v1 as components
-import sys
-import os
 
-# Add parent directory to path to import styles
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from styles import get_table_styles
+# Import styles from parent shared module
+from ..styles import get_table_styles
 
 
 def render_table_with_merged_headers(
@@ -17,8 +18,7 @@ def render_table_with_merged_headers(
     column_width_overrides: dict | None = None,
     frame_width: int | None = None,  # pixel width of the iframe; None = auto
     container_css_width: str | None = None,  # CSS width for inner container, e.g. '280px' or '60%'
-    return_html: bool = False,
-) -> str | None:
+) -> None:
     """Render a DataFrame with 2 or 3-level MultiIndex columns with merged headers and interactive sorting."""
     # Separate "Total" row if it exists (will be rendered in tfoot)
     total_row = None
@@ -419,14 +419,8 @@ def render_table_with_merged_headers(
         + footer_rows * footer_row_height
         + extra_padding
     )
-    # Return raw HTML without rendering when requested (for report export)
-    if return_html:
-        return html
-
     # Apply optional iframe width for finer layout control
     if frame_width is not None:
         components.html(html, height=int(iframe_height), width=frame_width, scrolling=False)
     else:
         components.html(html, height=int(iframe_height), scrolling=False)
-    return html
-

@@ -59,3 +59,47 @@ def get_admin_liquidations_query(date_start: str, date_end: str) -> str:
         FROM {ADMIN_LIQUIDATIONS_TABLE}
         WHERE pymt_info_date::DATE BETWEEN '{date_start}' AND '{date_end}'
     """
+
+def get_admin_liquidations_without_cashu_query(date_start: str, date_end: str) -> str:
+    """Query for Fund Administrator liquidations without CashU."""
+    return f"""
+    SELECT
+        coalesce(t2.nr_cnab_doc,t2.id_external) as nr_cnab_doc,
+        t2.* exclude(nr_cnab_doc)
+    FROM {CASHU_LIQUIDATIONS_TABLE} t1
+    right JOIN {ADMIN_LIQUIDATIONS_TABLE} t2 ON t1.id_inv_fin_item = t2.id_inv_fin_item 
+    WHERE t2.pymt_info_date::date BETWEEN '{date_start}' AND '{date_end}' AND t1.pymt_date IS NULL
+    """
+
+def get_cashu_liquidations_without_admin_query(date_start: str, date_end: str) -> str:
+    """Query for CashU liquidations without Admin."""
+    return f"""
+        SELECT
+        	t1.*
+        FROM {CASHU_LIQUIDATIONS_TABLE} t1
+        left JOIN {ADMIN_LIQUIDATIONS_TABLE} t2 ON t1.id_inv_fin_item  = t2.id_inv_fin_item 
+        WHERE t1.pymt_date::date BETWEEN '{date_start}' AND '{date_end}' AND t1.pymt_date IS NOT NULL AND t2.id_inv_fin_item IS NULL AND t1.cd_name_slug  <> 'br_aco'
+   """
+
+def get_matching_liquidations_query(date_start: str, date_end: str) -> str:
+    """Query for matching liquidations."""
+    return f"""
+        SELECT
+        	t1.id_inv_fin_item,
+        	t1.NR_GOV_ID_SELLER,
+        	t1.NR_CNAB_CTRL NR_CNAB_CTRL_cashu,
+        	t1.NR_CNAB_DOC NR_CNAB_DOC_cashu,
+        	t1.PYMT_DATE,
+        	t1.AMT_TOTAL,
+        	t1.AMT_PAID,
+        	t1.st_billet,
+        	t2.NR_CNAB_CTRL NR_CNAB_CTRL_admin,
+        	t2.NR_CNAB_DOC NR_CNAB_DOC_admin,
+        	t2.PYMT_INFO_DATE,
+        	t2.AMT_FUTURE,
+        	t2.AMT_PYMT,
+        	t2.TP_LIQUIDATION
+        FROM {CASHU_LIQUIDATIONS_TABLE} t1
+        INNER JOIN {ADMIN_LIQUIDATIONS_TABLE} t2 ON t1.id_inv_fin_item  = t2.id_inv_fin_item 
+        WHERE t2.pymt_info_date::date BETWEEN '{date_start}' AND '{date_end}' AND t1.pymt_date::date IS NOT NULL AND (t1.cd_name_slug  <> 'br_aco' OR t1.cd_name_slug  IS NULL) 
+    """

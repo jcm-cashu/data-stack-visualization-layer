@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 from db import run_query
 from components import render_table_with_merged_headers
 from styles import get_custom_css, COLORS
+from report import generate_report
 import queries
 
 # Plot color palette derived from app theme
@@ -155,6 +156,30 @@ def _sidebar() -> date:
             if st.sidebar.button(_label, key=f"nav-{_label}"):
                 st.session_state.page = _label
                 st.rerun()
+
+    # Export current page as HTML report
+    st.sidebar.divider()
+    if st.sidebar.button("Gerar Relatório HTML", key="btn-export-report", type="secondary"):
+        st.session_state._report_requested = True
+
+    if st.session_state.get("_report_requested"):
+        with st.sidebar:
+            with st.spinner("Gerando relatório..."):
+                report_html = generate_report(
+                    st.session_state.page,
+                    st.session_state.reference_date,
+                )
+            page_slug = st.session_state.page.lower().replace(" ", "_").replace("ú", "u").replace("á", "a")
+            ref_str = st.session_state.reference_date.strftime("%Y-%m-%d") if hasattr(st.session_state.reference_date, "strftime") else str(st.session_state.reference_date)
+            filename = f"relatorio_{page_slug}_{ref_str}.html"
+            st.download_button(
+                label="Baixar Relatório HTML",
+                data=report_html,
+                file_name=filename,
+                mime="text/html",
+                key="download-report",
+            )
+
     return st.session_state.reference_date
 
 
@@ -311,7 +336,7 @@ def _render_breakdown_lojas() -> None:
     # Histogram: Distribuição de Clientes com Crédito
     sql_perc_credito = queries.get_perc_credito_query(inicio.month, inicio.year, habilitacao_filter, tier_filter)
     df_perc_credito = _normalize_columns(run_query(sql_perc_credito))
-    st.caption("Distribuição de Clientes com Crédito que Compraram no Período")
+    st.caption("Histograma do Percentual de Cobertura de Crédito por Loja")
     if df_perc_credito.empty:
         st.info("Sem dados para o período.")
     else:
@@ -693,6 +718,7 @@ def _render_distribuicao_credito() -> None:
         fig_pct = px.histogram(
             df_credito,
             x="percentual_utilizado_pct",
+            histnorm='percent',
             nbins=30,
             range_x=[0, 100],
             labels={"percentual_utilizado_pct": "% Utilizado"},
@@ -711,6 +737,7 @@ def _render_distribuicao_credito() -> None:
         fig_pct2 = px.histogram(
             df_credito,
             x="percentual_utilizado_pct",
+            histnorm='percent',
             nbins=30,
             range_x=[0, 100],
             labels={"percentual_utilizado_pct": "% Utilizado"},

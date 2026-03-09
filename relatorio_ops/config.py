@@ -31,6 +31,7 @@ except ImportError:
 SNOWFLAKE_CONFIG = {
     "user": os.getenv("SNOWFLAKE_USER"),
     "password": os.getenv("SNOWFLAKE_PASSWORD"),
+    "private_key_file": os.getenv("SNOWFLAKE_PRIVATE_KEY_FILE"),
     "account": os.getenv("SNOWFLAKE_ACCOUNT"),
     "warehouse": os.getenv("SNOWFLAKE_WAREHOUSE"),
     "database": os.getenv("SNOWFLAKE_DATABASE"),

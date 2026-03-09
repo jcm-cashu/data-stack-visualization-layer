@@ -530,54 +530,42 @@ def _load_admin_liquidations(date_start: str, date_end: str) -> pd.DataFrame:
     return _normalize_columns(run_query(sql))
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_matching_liquidations(date_start: str, date_end: str) -> pd.DataFrame:
+    """Load matching liquidations (inner join at SQL level)."""
+    sql = queries.get_matching_liquidations_query(date_start, date_end)
+    return _normalize_columns(run_query(sql))
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_admin_liquidations_without_cashu(date_start: str, date_end: str) -> pd.DataFrame:
+    """Load admin liquidations that have no CashU match."""
+    sql = queries.get_admin_liquidations_without_cashu_query(date_start, date_end)
+    return _normalize_columns(run_query(sql))
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_cashu_liquidations_without_admin(date_start: str, date_end: str) -> pd.DataFrame:
+    """Load CashU liquidations that have no admin match."""
+    sql = queries.get_cashu_liquidations_without_admin_query(date_start, date_end)
+    return _normalize_columns(run_query(sql))
+
+
 def _load_all_liquidations_data() -> dict:
     """Load and process all data for liquidations reconciliation."""
     date_start, date_end = _get_date_range()
-    
-    # Load base data
+
     df_cashu = _load_cashu_liquidations(date_start, date_end)
     df_admin = _load_admin_liquidations(date_start, date_end)
-    
-    # Identified titles (matching between systems)
-    if not df_cashu.empty and not df_admin.empty:
-        titulos_identificados = pd.merge(
-            df_cashu, 
-            df_admin, 
-            on="id_inv_fin_item", 
-            how="inner",
-            suffixes=("_cashu", "_admin")
-        )
-        
-        # Mismatched values - compare AMT_PAID vs AMT_PYMT and AMT_TOTAL vs AMT_FUTURE
-        titulos_divergentes = titulos_identificados[
-            (abs(titulos_identificados["amt_future"] - titulos_identificados["amt_total"]) > 0.01) |
-            (abs(titulos_identificados["amt_pymt"] - titulos_identificados["amt_paid"]) > 0.01)
-        ].copy()
-    else:
-        titulos_identificados = pd.DataFrame()
-        titulos_divergentes = pd.DataFrame()
-    
-    # Admin titles not in CashU
-    if not df_admin.empty and not df_cashu.empty:
-        df_admin_sem_cashu = df_admin[~df_admin["id_inv_fin_item"].isin(df_cashu["id_inv_fin_item"])].copy()
-    elif not df_admin.empty:
-        df_admin_sem_cashu = df_admin.copy()
-    else:
-        df_admin_sem_cashu = pd.DataFrame()
-    
-    # CashU titles not in Admin
-    if not df_cashu.empty and not df_admin.empty:
-        df_cashu_sem_admin = df_cashu[~df_cashu["id_inv_fin_item"].isin(df_admin["id_inv_fin_item"])].copy()
-    elif not df_cashu.empty:
-        df_cashu_sem_admin = df_cashu.copy()
-    else:
-        df_cashu_sem_admin = pd.DataFrame()
-    
+
+    titulos_identificados = _load_matching_liquidations(date_start, date_end)
+    df_admin_sem_cashu = _load_admin_liquidations_without_cashu(date_start, date_end)
+    df_cashu_sem_admin = _load_cashu_liquidations_without_admin(date_start, date_end)
+
     return {
         "df_cashu": df_cashu,
         "df_admin": df_admin,
         "titulos_identificados": titulos_identificados,
-        "titulos_divergentes": titulos_divergentes,
         "df_admin_sem_cashu": df_admin_sem_cashu,
         "df_cashu_sem_admin": df_cashu_sem_admin,
     }
@@ -645,7 +633,6 @@ def _render_matched_liquidations(titulos_identificados: pd.DataFrame) -> None:
         st.warning("Nenhuma liquidação foi identificada entre os dois sistemas.")
         return
     
-    # Calculate differences
     diff_face = titulos_identificados["amt_future"].sum() - titulos_identificados["amt_total"].sum()
     diff_pago = titulos_identificados["amt_pymt"].sum() - titulos_identificados["amt_paid"].sum()
     
@@ -669,87 +656,63 @@ def _render_matched_liquidations(titulos_identificados: pd.DataFrame) -> None:
             delta="OK" if abs(diff_pago) < 0.01 else "Divergência",
             delta_color=delta_color
         )
-
-
-def _render_divergent_liquidations(titulos_divergentes: pd.DataFrame) -> None:
-    """Render table of liquidations with mismatched values."""
-    if titulos_divergentes.empty:
+    
+    num_divergentes = len(titulos_identificados[
+        (abs(titulos_identificados["amt_future"] - titulos_identificados["amt_total"]) > 0.01) |
+        (abs(titulos_identificados["amt_pymt"] - titulos_identificados["amt_paid"]) > 0.01)
+    ])
+    if num_divergentes > 0:
+        st.warning(f"⚠ {num_divergentes} liquidações com valores divergentes encontradas.")
+    else:
         st.success("✓ Todas as liquidações identificadas possuem valores consistentes entre os sistemas.")
-        return
-    
-    st.warning(f"⚠ {len(titulos_divergentes)} liquidações com valores divergentes encontradas.")
-    
-    df_tmp = titulos_divergentes.copy()
 
-    if "nr_gov_id_seller" in df_tmp.columns:
-        df_tmp["cnpj_emitente_invoice"] = df_tmp["nr_gov_id_seller"]
-
-    # CNAB identifiers (both sides, when available)
-    if "nr_cnab_doc_cashu" in df_tmp.columns:
-        df_tmp["numero_documento_cashu"] = df_tmp["nr_cnab_doc_cashu"]
-    elif "nr_cnab_doc" in df_tmp.columns:
-        df_tmp["numero_documento_cashu"] = df_tmp["nr_cnab_doc"]
-    if "nr_cnab_doc_admin" in df_tmp.columns:
-        df_tmp["numero_documento_admin"] = df_tmp["nr_cnab_doc_admin"]
-
-    if "nr_cnab_ctrl_cashu" in df_tmp.columns:
-        df_tmp["seu_numero_cashu"] = df_tmp["nr_cnab_ctrl_cashu"]
-    elif "nr_cnab_ctrl" in df_tmp.columns:
-        df_tmp["seu_numero_cashu"] = df_tmp["nr_cnab_ctrl"]
-    if "nr_cnab_ctrl_admin" in df_tmp.columns:
-        df_tmp["seu_numero_admin"] = df_tmp["nr_cnab_ctrl_admin"]
-
-    # Select relevant columns for display
+    df_tmp = titulos_identificados.copy()
     display_cols = [
         "id_inv_fin_item",
-        "cd_name_slug",
-        "cnpj_emitente_invoice",
-        "numero_documento_cashu",
-        "numero_documento_admin",
-        "seu_numero_cashu",
-        "seu_numero_admin",
+        "nr_gov_id_seller",
+        "nr_cnab_ctrl_cashu",
+        "nr_cnab_doc_cashu",
         "pymt_date",
-        "pymt_date_cedent",
         "amt_total",
-        "amt_future",
         "amt_paid",
-        "amt_pymt",
         "st_billet",
+        "nr_cnab_ctrl_admin",
+        "nr_cnab_doc_admin",
+        "pymt_info_date",
+        "amt_future",
+        "amt_pymt",
         "tp_liquidation",
     ]
     available_cols = [c for c in display_cols if c in df_tmp.columns]
     df_display = df_tmp[available_cols].copy()
-    
-    # Rename columns for better readability
+
     rename_map = {
         "id_inv_fin_item": "ID Invoice Financing Item",
-        "cd_name_slug": "Corporate",
-        "cnpj_emitente_invoice": "CNPJ Emitente (Invoice)",
-        "numero_documento_cashu": "Número Documento (CashU)",
-        "numero_documento_admin": "Número Documento (Admin)",
-        "seu_numero_cashu": "Seu Número (CashU)",
-        "seu_numero_admin": "Seu Número (Admin)",
+        "nr_gov_id_seller": "CNPJ Emitente",
+        "nr_cnab_ctrl_cashu": "Seu Número (CashU)",
+        "nr_cnab_doc_cashu": "Número Documento (CashU)",
         "pymt_date": "Data Pgto (CashU)",
-        "pymt_date_cedent": "Data Pgto (Admin)",
         "amt_total": "Valor Face (CashU)",
-        "amt_future": "Valor Face (Admin)",
         "amt_paid": "Valor Pago (CashU)",
-        "amt_pymt": "Valor Pago (Admin)",
         "st_billet": "Status (CashU)",
+        "nr_cnab_ctrl_admin": "Seu Número (Admin)",
+        "nr_cnab_doc_admin": "Número Documento (Admin)",
+        "pymt_info_date": "Data Pgto (Admin)",
+        "amt_future": "Valor Face (Admin)",
+        "amt_pymt": "Valor Pago (Admin)",
         "tp_liquidation": "Tipo Liquidação",
     }
     df_display = df_display.rename(columns={k: v for k, v in rename_map.items() if k in df_display.columns})
-    
+
     st.dataframe(df_display, use_container_width=True, hide_index=True)
-    
-    # CSV download
+
     csv = df_display.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
     st.download_button(
         label="⬇ Exportar CSV",
         data=csv,
-        file_name="liquidacoes_divergentes.csv",
+        file_name="liquidacoes_identificadas.csv",
         mime="text/csv",
-        key="download_liq_divergentes"
+        key="download_liq_identificadas"
     )
 
 
@@ -917,7 +880,6 @@ def render_conciliacao_liquidações() -> None:
     st.divider()
     
     _render_matched_liquidations(data["titulos_identificados"])
-    _render_divergent_liquidations(data["titulos_divergentes"])
     st.divider()
     
     _render_cashu_liquidations_sem_admin(data["df_cashu_sem_admin"])

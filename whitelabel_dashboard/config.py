@@ -20,11 +20,13 @@ from dotenv import load_dotenv
 # Load .env file from the app directory
 _env_path = Path(__file__).parent / ".env"
 load_dotenv(_env_path)
+load_dotenv('/Users/joaomagalhaes/cashu/.env')
 
 # Snowflake configuration
 SNOWFLAKE_CONFIG = {
     "user": os.getenv("SNOWFLAKE_USER"),
     "password": os.getenv("SNOWFLAKE_PASSWORD"),
+    "private_key_file": os.getenv("SNOWFLAKE_PRIVATE_KEY_FILE"),
     "account": os.getenv("SNOWFLAKE_ACCOUNT"),
     "warehouse": os.getenv("SNOWFLAKE_WAREHOUSE"),
     "database": os.getenv("SNOWFLAKE_DATABASE"),

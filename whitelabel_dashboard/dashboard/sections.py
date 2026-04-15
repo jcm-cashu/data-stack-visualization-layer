@@ -4,6 +4,11 @@ Dashboard Sections - Section render functions
 This file contains all the section render functions for the dashboard.
 Each section is a self-contained unit that renders a part of the page.
 
+Storytelling structure (Cole Knaflic):
+  Beginning -> KPI summary row establishes context
+  Middle    -> Detailed breakdowns and charts explore the data
+  End       -> Actionable insight closes the narrative
+
 For new dashboards, you may need to:
 - Adjust metric labels and names
 - Add/remove sections based on your data
@@ -24,7 +29,9 @@ from shared.components import (
     render_table_with_merged_headers,
     chiclet_selector,
     PLOTLY_COLORWAY,
+    PLOTLY_CONFIG,
     build_vintage_line,
+    get_standard_layout,
 )
 
 # Dashboard-specific imports
@@ -55,9 +62,8 @@ def _ensure_cumulative_columns(
     ratio_cols: list[str] | None = None,
 ) -> pd.DataFrame:
     """Ensure cumulative delinquency column names exist; rename legacy ones when needed."""
-    # Snowflake returns uppercase column names, normalize to lowercase
     df.columns = df.columns.str.lower()
-    
+
     rename_candidates = {
         "over_15": "over_15p",
         "over_30": "over_30p",
@@ -89,22 +95,162 @@ def _ensure_cumulative_columns(
     return df
 
 
+def _fmt_currency(value: float) -> str:
+    """Format a number as BRL currency string."""
+    if abs(value) >= 1_000_000:
+        return f"R$ {value / 1_000_000:,.1f}M"
+    if abs(value) >= 1_000:
+        return f"R$ {value / 1_000:,.1f}K"
+    return f"R$ {value:,.0f}"
+
+
+def _fmt_int(value) -> str:
+    """Format a number as integer with thousands separator."""
+    try:
+        return f"{int(value):,}".replace(",", ".")
+    except (ValueError, TypeError):
+        return "0"
+
+
+def _build_tier_filter(selector_tier: str) -> str:
+    """Map tier selector value to SQL filter clause."""
+    if selector_tier in ("A", "B", "C", "D", "E"):
+        return f"and tier_loja = '{selector_tier}'"
+    if selector_tier == "Sem Tier":
+        return "and tier_loja = 'Sem Tier'"
+    return ""
+
+
+def _build_habilitacao_filter(selector: str) -> str:
+    """Map habilitacao selector value to SQL filter clause."""
+    if selector == "Habilitada":
+        return "and loja_habilitada_flag = true"
+    if selector == "Não Habilitada":
+        return "and loja_habilitada_flag = false"
+    return ""
+
+
+def _period_bounds(ref: date, meses: int) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """Compute (start_date, end_date) going *meses* months back from *ref*."""
+    start_year = ref.year
+    start_month = ref.month - (meses - 1)
+    while start_month <= 0:
+        start_month += 12
+        start_year -= 1
+    return pd.Timestamp(start_year, start_month, 1), pd.Timestamp(ref.year, ref.month, 1)
+
+
+_MESES_MAP: dict[str, int] = {
+    "Ultimos 2 Meses": 2,
+    "Ultimos 3 Meses": 3,
+    "Ultimos 6 Meses": 6,
+    "Ultimos 9 Meses": 9,
+    "Ultimos 12 Meses": 12,
+}
+
+
+# =============================================================================
+# Cached data-loading helpers
+# =============================================================================
+
+@st.cache_data(ttl=3600)
+def _load_totais(month: int, year: int) -> pd.DataFrame:
+    return _normalize_columns(run_query(queries.get_totais_query(month, year)))
+
+
+@st.cache_data(ttl=3600)
+def _load_habilitacao(month: int, year: int) -> pd.DataFrame:
+    return _normalize_columns(run_query(queries.get_habilitacao_query(month, year)))
+
+
+@st.cache_data(ttl=3600)
+def _load_tier(month: int, year: int) -> pd.DataFrame:
+    return _normalize_columns(run_query(queries.get_tier_query(month, year)))
+
+
+@st.cache_data(ttl=3600)
+def _load_breakdown_lojas(month: int, year: int, hab_filter: str, tier_filter: str) -> pd.DataFrame:
+    sql = queries.get_breakdown_lojas_query(month, year, hab_filter, tier_filter)
+    return _normalize_columns(run_query(sql))
+
+
+@st.cache_data(ttl=3600)
+def _load_perc_credito(month: int, year: int, hab_filter: str, tier_filter: str) -> pd.DataFrame:
+    sql = queries.get_perc_credito_query(month, year, hab_filter, tier_filter)
+    return _normalize_columns(run_query(sql))
+
+
+@st.cache_data(ttl=3600)
+def _load_breakdown_revendedores(month: int, year: int) -> pd.DataFrame:
+    sql = queries.get_breakdown_revendedores_query(month, year)
+    return _normalize_columns(run_query(sql))
+
+
+@st.cache_data(ttl=3600)
+def _load_faturamento_per_capta(ref_date: str, meses: int) -> pd.DataFrame:
+    sql = queries.get_faturamento_per_capta_query(ref_date, meses)
+    return _normalize_columns(run_query(sql))
+
+
+@st.cache_data(ttl=3600)
+def _load_distribuicao_credito(ref_date: str, filtro_sql: str) -> pd.DataFrame:
+    sql = queries.get_distribuicao_credito_query(ref_date, filtro_sql)
+    return _normalize_columns(run_query(sql))
+
+
+@st.cache_data(ttl=3600)
+def _load_inadimplencia_evolucao(start_date: str, end_date: str) -> pd.DataFrame:
+    sql = queries.get_inadimplencia_evolucao_query(start_date, end_date)
+    return _normalize_columns(run_query(sql))
+
+
+@st.cache_data(ttl=3600)
+def _load_vintage_clientes() -> pd.DataFrame:
+    return _normalize_columns(run_query(queries.VINTAGE_CLIENTES_QUERY))
+
+
+@st.cache_data(ttl=3600)
+def _load_vintage_originacao() -> pd.DataFrame:
+    return _normalize_columns(run_query(queries.VINTAGE_ORIGINACAO_QUERY))
+
+
+@st.cache_data(ttl=3600)
+def _load_timeseries_receita(start: str, end: str, flag: bool) -> pd.DataFrame:
+    sql_ts = queries.get_timeseries_receita_query()
+    return _normalize_columns(run_query(sql_ts, params=(start, end, flag)))
+
+
 # =============================================================================
 # SUMÁRIO GERAL - Section Functions
 # =============================================================================
 
 
-def _render_numeros_gerais() -> None:
+def _render_kpi_sumario(df_totais: pd.DataFrame) -> None:
+    """Beginning: KPI summary row establishing context for the general summary."""
+    if df_totais.empty:
+        return
+    r = df_totais.iloc[0]
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Receita Total", _fmt_currency(r.get("financeiro", 0)))
+    with col2:
+        st.metric("Receita CashU", _fmt_currency(r.get("financeiro_cashu", 0)))
+    with col3:
+        st.metric("Clientes", _fmt_int(r.get("numero_clientes", 0)))
+    with col4:
+        st.metric("Ticket Médio", _fmt_currency(r.get("ticket_medio", 0)))
+
+
+def _render_numeros_gerais(df_totais: pd.DataFrame) -> None:
     """Render the 'Números Gerais' section with Totais, Por Habilitação, Por Tier tables."""
     inicio = st.session_state.reference_date
     st.subheader("Números Gerais")
+    st.caption("Visão consolidada das métricas do período por habilitação e tier de loja.")
     col_totais, col_hab, col_tier = st.columns([0.45, 0.55, 1.0])
 
     # Totais
     with col_totais:
         st.caption("Totais")
-        sql_totais = queries.get_totais_query(inicio.month, inicio.year)
-        df_totais = _normalize_columns(run_query(sql_totais))
         if df_totais.empty:
             st.info("Sem dados para o período.")
         else:
@@ -132,8 +278,7 @@ def _render_numeros_gerais() -> None:
     # Por habilitação
     with col_hab:
         st.caption("Por Habilitação")
-        sql_hab = queries.get_habilitacao_query(inicio.month, inicio.year)
-        df_hab = _normalize_columns(run_query(sql_hab))
+        df_hab = _load_habilitacao(inicio.month, inicio.year)
         if df_hab.empty:
             st.info("Sem dados para o período.")
         else:
@@ -153,8 +298,7 @@ def _render_numeros_gerais() -> None:
     # Por tier
     with col_tier:
         st.caption("Por Tier")
-        sql_tier = queries.get_tier_query(inicio.month, inicio.year)
-        df_tier = _normalize_columns(run_query(sql_tier))
+        df_tier = _load_tier(inicio.month, inicio.year)
         if df_tier.empty:
             st.info("Sem dados para o período.")
         else:
@@ -176,6 +320,7 @@ def _render_breakdown_lojas() -> None:
     """Render the 'Breakdown Lojas' section with filters and histogram."""
     inicio = st.session_state.reference_date
     st.subheader("Breakdown Lojas")
+    st.caption("Comparação de métricas por tipo de loja. Use os filtros para segmentar por habilitação e tier.")
 
     selector_habilitacao = chiclet_selector(
         options=HABILITACAO_OPTIONS,
@@ -192,30 +337,10 @@ def _render_breakdown_lojas() -> None:
         group_max_fraction=0.5,
     )
 
-    if selector_habilitacao == "Habilitada":
-        habilitacao_filter = "and loja_habilitada_flag = true"
-    elif selector_habilitacao == "Não Habilitada":
-        habilitacao_filter = "and loja_habilitada_flag = false"
-    else:
-        habilitacao_filter = ""
+    habilitacao_filter = _build_habilitacao_filter(selector_habilitacao)
+    tier_filter = _build_tier_filter(selector_tier)
 
-    if selector_tier == "A":
-        tier_filter = "and tier_loja = 'A'"
-    elif selector_tier == "B":
-        tier_filter = "and tier_loja = 'B'"
-    elif selector_tier == "C":
-        tier_filter = "and tier_loja = 'C'"
-    elif selector_tier == "D":
-        tier_filter = "and tier_loja = 'D'"
-    elif selector_tier == "E":
-        tier_filter = "and tier_loja = 'E'"
-    elif selector_tier == "Sem Tier":
-        tier_filter = "and tier_loja = 'Sem Tier'"
-    else:
-        tier_filter = ""
-
-    sql = queries.get_breakdown_lojas_query(inicio.month, inicio.year, habilitacao_filter, tier_filter)
-    df = _normalize_columns(run_query(sql))
+    df = _load_breakdown_lojas(inicio.month, inicio.year, habilitacao_filter, tier_filter)
     df = df.pivot(index='forma_pagamento', columns='tipo_loja', values=['financeiro', 'numero_compras', 'numero_clientes', 'ticket_medio']).fillna(0)
 
     df = df.swaplevel(0, 1, axis=1)
@@ -240,9 +365,8 @@ def _render_breakdown_lojas() -> None:
     render_table_with_merged_headers(df)
 
     # Histogram: Distribuição de Clientes com Crédito
-    sql_perc_credito = queries.get_perc_credito_query(inicio.month, inicio.year, habilitacao_filter, tier_filter)
-    df_perc_credito = _normalize_columns(run_query(sql_perc_credito))
-    st.caption("Distribuição de Clientes com Crédito que Compraram no Período")
+    df_perc_credito = _load_perc_credito(inicio.month, inicio.year, habilitacao_filter, tier_filter)
+    st.caption("Proporção de clientes com crédito por loja. Concentração à esquerda indica baixa penetração de crédito.")
     if df_perc_credito.empty:
         st.info("Sem dados para o período.")
     else:
@@ -263,14 +387,12 @@ def _render_breakdown_lojas() -> None:
             include_lowest=True,
             right=False,
         )
-        
-        # Use pandas groupby instead of DuckDB for bin counting
+
         bin_counts = (
             df_perc_credito.groupby("credito_bin", observed=True)
             .size()
             .reset_index(name="numero_lojas")
         )
-        # Create ordering index based on bin_labels order
         bin_order_map = {label: idx for idx, label in enumerate(bin_labels)}
         bin_counts["ordering_index"] = bin_counts["credito_bin"].map(bin_order_map)
         bin_counts = bin_counts.sort_values("ordering_index")
@@ -291,68 +413,39 @@ def _render_breakdown_lojas() -> None:
             ]
         )
 
-        fig.update_xaxes(
-            title=dict(
-                text="% Clientes com Crédito",
-                font=dict(
-                    family="Red Hat Display, sans-serif",
-                    size=14,
-                    color=COLORS["text_primary"],
-                ),
-            ),
-            type="category",
-            categoryorder="array",
-            categoryarray=bin_labels,
-            tickfont=dict(
-                family="Red Hat Display, sans-serif",
-                size=12,
-                color=COLORS["text_primary"],
-            ),
-            showgrid=False,
-        )
-
-        fig.update_yaxes(
-            title=dict(
-                text="# Lojas",
-                font=dict(
-                    family="Red Hat Display, sans-serif",
-                    size=14,
-                    color=COLORS["text_primary"],
-                ),
-            ),
-            tickfont=dict(
-                family="Red Hat Display, sans-serif",
-                size=12,
-                color=COLORS["text_primary"],
-            ),
-            gridcolor="#e0e0e0",
-        )
-
         fig.update_layout(
-            template="plotly_white",
-            height=420,
-            margin=dict(l=40, r=16, t=40, b=40),
-            clickmode="event+select",
-            paper_bgcolor=COLORS["bg_light"],
-            plot_bgcolor=COLORS["bg_light"],
-            font=dict(
-                family="Red Hat Display, sans-serif",
-                color=COLORS["text_primary"],
-                size=12,
-            ),
-            xaxis=dict(showgrid=False),
+            **get_standard_layout(
+                show_legend=False,
+                xaxis=dict(
+                    title="% Clientes com Crédito",
+                    type="category",
+                    categoryorder="array",
+                    categoryarray=bin_labels,
+                    showgrid=False,
+                    showline=False,
+                    zeroline=False,
+                ),
+                yaxis=dict(
+                    title="# Lojas",
+                    showgrid=True,
+                    gridcolor=COLORS["table_border"],
+                    gridwidth=0.5,
+                    showline=False,
+                    zeroline=False,
+                ),
+            )
         )
 
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 
 
 def _render_breakdown_revendedores() -> None:
     """Render the 'Breakdown Revendedores' section."""
     inicio = st.session_state.reference_date
     st.subheader("Breakdown Revendedores")
+    st.caption("Desempenho por forma de pagamento, segmentado por habilitação e posse de crédito CashU.")
 
-    sql = queries.get_breakdown_revendedores_query(inicio.month, inicio.year)
-    df = _normalize_columns(run_query(sql))
+    df = _load_breakdown_revendedores(inicio.month, inicio.year)
     df = df.pivot(index='forma_pagamento', columns=['status_habilitada', 'tipo_revendedor'], values=['financeiro', 'numero_compras', 'numero_clientes', 'ticket_medio']).fillna(0)
 
     df = df.swaplevel(0, 1, axis=1).swaplevel(1, 2, axis=1)
@@ -383,6 +476,7 @@ def _render_evolucao_faturamento() -> None:
     """Render the 'Evolução do Faturamento Per Capta' section."""
     inicio = st.session_state.reference_date
     st.subheader("Evolução do Faturamento Per Capta")
+    st.caption("Tendência de receita por cliente ao longo do tempo, comparando clientes com e sem crédito CashU.")
 
     periodo_grafico = chiclet_selector(
         options=PERIODO_OPTIONS,
@@ -392,57 +486,9 @@ def _render_evolucao_faturamento() -> None:
         group_max_fraction=0.5,
     )
 
-    meses_map = {
-        "Ultimos 2 Meses": 2,
-        "Ultimos 3 Meses": 3,
-        "Ultimos 6 Meses": 6,
-        "Ultimos 9 Meses": 9,
-        "Ultimos 12 Meses": 12,
-    }
-    meses = meses_map.get(periodo_grafico, 2)
+    meses = _MESES_MAP.get(periodo_grafico, 2)
 
-    ref = st.session_state.reference_date
-    start_year = ref.year
-    start_month = ref.month - (meses - 1)
-    while start_month <= 0:
-        start_month += 12
-        start_year -= 1
-    start_date = pd.Timestamp(start_year, start_month, 1)
-    end_date = pd.Timestamp(ref.year, ref.month, 1)
-
-    sql_ts = queries.get_timeseries_receita_query()
-
-    df_yes = _normalize_columns(run_query(sql_ts, params=(str(start_date.date()), str(end_date.date()), True)))
-    df_no = _normalize_columns(run_query(sql_ts, params=(str(start_date.date()), str(end_date.date()), False)))
-
-    idx = pd.date_range(start=start_date, end=end_date, freq="MS")
-
-    def prep(df: pd.DataFrame) -> pd.DataFrame:
-        if df.empty:
-            out = pd.DataFrame({"ref_date": idx, "receita": 0.0})
-        else:
-            df["ref_date"] = pd.to_datetime(df["ref_date"])
-            out = (
-                df.set_index("ref_date")["receita"]
-                  .reindex(idx)
-                  .fillna(0.0)
-                  .to_frame(name="Receita (R$)")
-            )
-        return out
-
-    ts_yes = prep(df_yes)
-    ts_no = prep(df_no)
-
-    month_selector = {
-        "Ultimos 2 Meses": 2,
-        "Ultimos 3 Meses": 3,
-        "Ultimos 6 Meses": 6,
-        "Ultimos 9 Meses": 9,
-        "Ultimos 12 Meses": 12,
-    }
-
-    sql = queries.get_faturamento_per_capta_query(str(inicio), month_selector[periodo_grafico])
-    df = _normalize_columns(run_query(sql))
+    df = _load_faturamento_per_capta(str(inicio), meses)
 
     col1, col2 = st.columns(2)
     with col1:
@@ -466,12 +512,11 @@ def _render_evolucao_faturamento() -> None:
             labels={"date": "Data", "financeiro_per_capta": "R$", "forma_pagamento": "Forma de Pagamento"},
             template="plotly_white",
         )
+        fig1.update_traces(mode="lines")
         fig1.update_layout(
-            legend_title_text="Forma de Pagamento",
-            paper_bgcolor=COLORS["bg_light"],
-            plot_bgcolor=COLORS["bg_light"],
+            **get_standard_layout(legend_title="Forma de Pagamento")
         )
-        st.plotly_chart(fig1, width="stretch", config={"displayModeBar": False})
+        st.plotly_chart(fig1, use_container_width=True, config=PLOTLY_CONFIG)
 
     with col2:
         st.caption("Não Possui Crédito CashU")
@@ -494,18 +539,18 @@ def _render_evolucao_faturamento() -> None:
             labels={"date": "Data", "financeiro_per_capta": "R$", "forma_pagamento": "Forma de Pagamento"},
             template="plotly_white",
         )
+        fig2.update_traces(mode="lines")
         fig2.update_layout(
-            legend_title_text="Forma de Pagamento",
-            paper_bgcolor=COLORS["bg_light"],
-            plot_bgcolor=COLORS["bg_light"],
+            **get_standard_layout(legend_title="Forma de Pagamento")
         )
-        st.plotly_chart(fig2, width="stretch", config={"displayModeBar": False})
+        st.plotly_chart(fig2, use_container_width=True, config=PLOTLY_CONFIG)
 
 
 def _render_distribuicao_credito() -> None:
     """Render the 'Distribuição do Crédito Concedido x Utilização' section."""
     inicio = st.session_state.reference_date
     st.subheader("Distribuição do Crédito Concedido x Utilização")
+    st.caption("Análise da distribuição de limites e uso do crédito. Concentração à esquerda indica limites conservadores.")
 
     filtro_recencia = chiclet_selector(
         options=RECENCIA_OPTIONS,
@@ -522,8 +567,7 @@ def _render_distribuicao_credito() -> None:
     }
     filtro_recencia_sql = filtro_recencia_map.get(filtro_recencia, "")
 
-    sql = queries.get_distribuicao_credito_query(str(inicio), filtro_recencia_sql)
-    df_credito = _normalize_columns(run_query(sql))
+    df_credito = _load_distribuicao_credito(str(inicio), filtro_recencia_sql)
 
     if df_credito.empty:
         st.info("Não há dados de crédito para o período selecionado.")
@@ -536,6 +580,11 @@ def _render_distribuicao_credito() -> None:
             )
         else:
             df_credito["percentual_utilizado_pct"] = pd.NA
+
+        _hist_layout = get_standard_layout(
+            show_legend=False,
+            margin=dict(l=0, r=0, t=10, b=0),
+        )
 
         col_1, col_2 = st.columns(2)
         with col_1:
@@ -567,14 +616,11 @@ def _render_distribuicao_credito() -> None:
                 ]
             )
             fig_concedido.update_layout(
-                template="plotly_white",
-                margin=dict(l=0, r=0, t=10, b=0),
-                xaxis=dict(type="log", title="Crédito (R$)", tickprefix="R$ "),
-                yaxis=dict(title="Clientes"),
-                paper_bgcolor=COLORS["bg_light"],
-                plot_bgcolor=COLORS["bg_light"],
+                **_hist_layout,
+                xaxis=dict(type="log", title="Crédito (R$)", tickprefix="R$ ", showgrid=False, showline=False, zeroline=False),
+                yaxis=dict(title="Clientes", showgrid=True, gridcolor=COLORS["table_border"], gridwidth=0.5, showline=False, zeroline=False),
             )
-            st.plotly_chart(fig_concedido, width="stretch", config={"displayModeBar": False})
+            st.plotly_chart(fig_concedido, use_container_width=True, config=PLOTLY_CONFIG)
 
         with col_2:
             st.caption("Crédito utilizado por cliente (R$)")
@@ -611,16 +657,13 @@ def _render_distribuicao_credito() -> None:
                     ]
                 )
                 fig_utilizado.update_layout(
-                    template="plotly_white",
-                    margin=dict(l=0, r=0, t=10, b=0),
-                    xaxis=dict(type="log", title="Crédito (R$)", tickprefix="R$ "),
-                    yaxis=dict(title="Clientes"),
-                    paper_bgcolor=COLORS["bg_light"],
-                    plot_bgcolor=COLORS["bg_light"],
+                    **_hist_layout,
+                    xaxis=dict(type="log", title="Crédito (R$)", tickprefix="R$ ", showgrid=False, showline=False, zeroline=False),
+                    yaxis=dict(title="Clientes", showgrid=True, gridcolor=COLORS["table_border"], gridwidth=0.5, showline=False, zeroline=False),
                 )
-                st.plotly_chart(fig_utilizado, width="stretch", config={"displayModeBar": False})
+                st.plotly_chart(fig_utilizado, use_container_width=True, config=PLOTLY_CONFIG)
 
-        st.caption("Percentual de utilização do crédito (%)")
+        st.caption("Percentual de utilização do crédito — escala logarítmica para evidenciar faixas com poucos clientes.")
         fig_pct = px.histogram(
             df_credito,
             x="percentual_utilizado_pct",
@@ -631,14 +674,11 @@ def _render_distribuicao_credito() -> None:
             log_y=True,
             color_discrete_sequence=[COLORS["primary"]],
         )
-        fig_pct.update_layout(
-            paper_bgcolor=COLORS["bg_light"],
-            plot_bgcolor=COLORS["bg_light"],
-        )
+        fig_pct.update_layout(**get_standard_layout(show_legend=False))
         fig_pct.update_yaxes(title_text="Clientes")
-        st.plotly_chart(fig_pct, width="stretch", config={"displayModeBar": False})
+        st.plotly_chart(fig_pct, use_container_width=True, config=PLOTLY_CONFIG)
 
-        st.caption("Percentual de clientes com crédito (%)")
+        st.caption("Percentual de utilização do crédito — escala linear para visualizar a distribuição geral.")
         fig_pct2 = px.histogram(
             df_credito,
             x="percentual_utilizado_pct",
@@ -649,17 +689,22 @@ def _render_distribuicao_credito() -> None:
             log_y=False,
             color_discrete_sequence=[COLORS["accent"]],
         )
-        fig_pct2.update_layout(
-            paper_bgcolor=COLORS["bg_light"],
-            plot_bgcolor=COLORS["bg_light"],
-        )
+        fig_pct2.update_layout(**get_standard_layout(show_legend=False))
         fig_pct2.update_yaxes(title_text="Clientes")
-        st.plotly_chart(fig_pct2, width="stretch", config={"displayModeBar": False})
+        st.plotly_chart(fig_pct2, use_container_width=True, config=PLOTLY_CONFIG)
 
 
 def render_sumario_geral() -> None:
-    """Render the 'Sumário Geral' page."""
-    _render_numeros_gerais()
+    """Render the 'Sumário Geral' page with narrative structure."""
+    inicio = st.session_state.reference_date
+
+    # Beginning: KPI context row
+    df_totais = _load_totais(inicio.month, inicio.year)
+    _render_kpi_sumario(df_totais)
+    st.divider()
+
+    # Middle: detailed breakdowns
+    _render_numeros_gerais(df_totais)
     _render_breakdown_lojas()
     _render_breakdown_revendedores()
     _render_evolucao_faturamento()
@@ -671,10 +716,30 @@ def render_sumario_geral() -> None:
 # =============================================================================
 
 
+def _render_kpi_inadimplencia(df: pd.DataFrame) -> None:
+    """Beginning: KPI summary row for the delinquency page."""
+    if df.empty:
+        return
+    latest = df.sort_values("date").iloc[-1]
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Exposição", _fmt_currency(latest.get("exposicao", 0)))
+    with col2:
+        st.metric("Total Delinquente", _fmt_currency(latest.get("total_delinquente", 0)))
+    with col3:
+        exp = latest.get("exposicao", 0)
+        delinq = latest.get("total_delinquente", 0)
+        rate = (delinq / exp * 100) if exp else 0
+        st.metric("Taxa de Inadimplência", f"{rate:.1f}%")
+    with col4:
+        st.metric("Atraso (>2d)", _fmt_currency(latest.get("atraso", 0)))
+
+
 def _render_evolucao_inadimplencia() -> None:
     """Render the 'Evolução da Inadimplência' section."""
     ref = st.session_state.reference_date
     st.subheader("Evolução da Inadimplência")
+    st.caption("Acompanhamento mensal dos valores em atraso por faixa. Tendência crescente requer atenção.")
 
     periodo = chiclet_selector(
         options=PERIODO_OPTIONS,
@@ -683,25 +748,10 @@ def _render_evolucao_inadimplencia() -> None:
         variant="buttons",
         group_max_fraction=0.5,
     )
-    periodo_map = {
-        "Ultimos 2 Meses": 2,
-        "Ultimos 3 Meses": 3,
-        "Ultimos 6 Meses": 6,
-        "Ultimos 9 Meses": 9,
-        "Ultimos 12 Meses": 12,
-    }
-    months = periodo_map.get(periodo, 6)
+    months = _MESES_MAP.get(periodo, 6)
+    start_date, end_date = _period_bounds(ref, months)
 
-    start_year = ref.year
-    start_month = ref.month - (months - 1)
-    while start_month <= 0:
-        start_month += 12
-        start_year -= 1
-    start_date = pd.Timestamp(start_year, start_month, 1)
-    end_date = pd.Timestamp(ref.year, ref.month, 1)
-
-    sql = queries.get_inadimplencia_evolucao_query(str(start_date.date()), str(end_date.date()))
-    df = _normalize_columns(run_query(sql))
+    df = _load_inadimplencia_evolucao(str(start_date.date()), str(end_date.date()))
     if df.empty:
         st.info("Sem dados de inadimplência para o período selecionado.")
         return
@@ -735,24 +785,35 @@ def _render_evolucao_inadimplencia() -> None:
         color_discrete_sequence=PLOTLY_COLORWAY,
         template="plotly_white",
     )
+    fig.update_traces(mode="lines")
     fig.update_layout(
-        legend_title_text="Faixa de Inadimplência",
-        height=420,
-        margin=dict(l=40, r=16, t=40, b=40),
-        paper_bgcolor=COLORS["bg_light"],
-        plot_bgcolor=COLORS["bg_light"],
-        font=dict(family="Red Hat Display, sans-serif", color=COLORS["text_primary"]),
-        yaxis=dict(gridcolor="#e0e0e0", title="Valor (R$)"),
-        xaxis=dict(gridcolor="#e0e0e0", tickformat="%Y-%m"),
+        **get_standard_layout(
+            legend_title="Faixa de Inadimplência",
+            yaxis=dict(
+                title="Valor (R$)",
+                showgrid=True,
+                gridcolor=COLORS["table_border"],
+                gridwidth=0.5,
+                showline=False,
+                zeroline=False,
+            ),
+            xaxis=dict(
+                tickformat="%Y-%m",
+                showgrid=False,
+                showline=False,
+                zeroline=False,
+            ),
+        )
     )
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 
 
 def _render_safras_clientes() -> None:
     """Render the 'Análise de Safras Clientes' section."""
     st.subheader("Análise de Safras Clientes")
+    st.caption("Curvas de delinquência por safra de relacionamento. Safras mais recentes devem convergir para níveis menores.")
 
-    df_vintage_clientes = _normalize_columns(run_query(queries.VINTAGE_CLIENTES_QUERY))
+    df_vintage_clientes = _load_vintage_clientes()
     if df_vintage_clientes.empty:
         st.info("Sem dados de safra para o período selecionado.")
         return
@@ -792,7 +853,7 @@ def _render_safras_clientes() -> None:
             metric, title = pair
             with col_placeholder:
                 fig_line = build_vintage_line(df_vintage, metric, title)
-                st.plotly_chart(fig_line, use_container_width=True, config={"displayModeBar": False})
+                st.plotly_chart(fig_line, use_container_width=True, config=PLOTLY_CONFIG)
         if len(metric_pairs_clientes[idx:idx + 2]) == 1:
             cols[1].empty()
 
@@ -800,8 +861,9 @@ def _render_safras_clientes() -> None:
 def _render_safras_originacao() -> None:
     """Render the 'Análise de Safras Originação' section."""
     st.subheader("Análise de Safras Originação")
+    st.caption("Curvas de delinquência por safra de originação do crédito.")
 
-    df_vintage_origin = _normalize_columns(run_query(queries.VINTAGE_ORIGINACAO_QUERY))
+    df_vintage_origin = _load_vintage_originacao()
     if df_vintage_origin.empty:
         st.info("Sem dados de safra de originação para o período selecionado.")
         return
@@ -839,13 +901,25 @@ def _render_safras_originacao() -> None:
             metric, title = pair
             with col_placeholder:
                 fig_line = build_vintage_line(df_vintage, metric, title)
-                st.plotly_chart(fig_line, use_container_width=True, config={"displayModeBar": False})
+                st.plotly_chart(fig_line, use_container_width=True, config=PLOTLY_CONFIG)
         if len(metric_pairs_origin[idx:idx + 2]) == 1:
             cols[1].empty()
 
 
 def render_inadimplencia() -> None:
-    """Render the 'Inadimplência' page."""
+    """Render the 'Inadimplência' page with narrative structure."""
+    ref = st.session_state.reference_date
+
+    # Beginning: KPI context row (reuses default 6-month window)
+    start_date, end_date = _period_bounds(ref, 6)
+    df_kpi = _load_inadimplencia_evolucao(str(start_date.date()), str(end_date.date()))
+    if not df_kpi.empty:
+        df_kpi = _ensure_cumulative_columns(df_kpi)
+        df_kpi["date"] = pd.to_datetime(df_kpi["date"])
+    _render_kpi_inadimplencia(df_kpi)
+    st.divider()
+
+    # Middle: detailed analysis
     _render_evolucao_inadimplencia()
     _render_safras_clientes()
     _render_safras_originacao()

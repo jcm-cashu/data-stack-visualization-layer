@@ -1,10 +1,24 @@
 """
 White-Label Dashboard Styles - DO NOT MODIFY
-Visual identity: Colors, CSS, table styles.
+Visual identity: Colors, CSS, table styles, chart defaults.
 Typography: Red Hat Display
 """
 
-# Paleta de cores
+# ---------------------------------------------------------------------------
+# Spacing (4px base unit)
+# ---------------------------------------------------------------------------
+SPACING = {
+    "xs": 4,
+    "sm": 8,
+    "md": 16,
+    "lg": 24,
+    "xl": 32,
+    "2xl": 48,
+}
+
+# ---------------------------------------------------------------------------
+# Colors
+# ---------------------------------------------------------------------------
 COLORS = {
     # Cores principais
     "primary": "#f5c344",        # Warm yellow - highlights, buttons, active states
@@ -30,6 +44,50 @@ COLORS = {
     "table_stripe": "#fafafa",
     "table_total": "#f0f0f0",    # Very light gray for totals
     "table_total_text": "#1a1a1a",  # Dark text on light background
+}
+
+
+# ---------------------------------------------------------------------------
+# Plotly defaults (data-ink ratio & clutter reduction)
+# ---------------------------------------------------------------------------
+PLOTLY_CONFIG: dict = {
+    "displayModeBar": False,
+    "displaylogo": False,
+    "responsive": True,
+}
+
+PLOTLY_LAYOUT: dict = {
+    "height": 420,
+    "margin": dict(l=40, r=16, t=40, b=40),
+    "paper_bgcolor": COLORS["bg_light"],
+    "plot_bgcolor": COLORS["bg_light"],
+    "font": dict(
+        family="Red Hat Display, sans-serif",
+        color=COLORS["text_primary"],
+        size=12,
+    ),
+    "xaxis": dict(
+        showgrid=False,
+        showline=False,
+        zeroline=False,
+        tickfont=dict(size=12),
+    ),
+    "yaxis": dict(
+        showgrid=True,
+        gridcolor=COLORS["table_border"],
+        gridwidth=0.5,
+        showline=False,
+        zeroline=False,
+        tickfont=dict(size=12),
+    ),
+    "showlegend": True,
+    "legend": dict(
+        orientation="h",
+        yanchor="bottom",
+        y=1.02,
+        xanchor="left",
+        x=0,
+    ),
 }
 
 

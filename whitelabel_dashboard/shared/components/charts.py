@@ -2,24 +2,24 @@
 Chart components - DO NOT MODIFY
 Provides consistent chart styling and builders for Plotly charts.
 """
+import copy
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
-from ..styles import COLORS
+from ..styles import COLORS, PLOTLY_CONFIG, PLOTLY_LAYOUT
 
-
-# Plot color palette derived from app theme
 PLOTLY_COLORWAY = [COLORS["secondary"], COLORS["accent"], COLORS["primary"], COLORS["danger"]]
 
 
 def adjust_color(hex_color: str, factor: float) -> str:
     """Adjust color brightness by factor.
-    
+
     Args:
         hex_color: Hex color string (e.g., "#f5c344")
         factor: Brightness multiplier (< 1 = darker, > 1 = lighter)
-    
+
     Returns:
         Adjusted hex color string
     """
@@ -38,35 +38,33 @@ def get_standard_layout(
     height: int = 420,
     show_legend: bool = True,
     legend_title: str = "",
+    **overrides,
 ) -> dict:
-    """Get standard Plotly layout configuration matching the visual identity.
-    
+    """Build a Plotly layout dict from PLOTLY_LAYOUT defaults.
+
+    All keyword arguments in *overrides* are shallow-merged on top of the
+    base layout, so callers can tweak individual properties without
+    duplicating the full config.
+
     Args:
-        title: Chart title
-        height: Chart height in pixels
-        show_legend: Whether to show legend
-        legend_title: Legend title text
-    
+        title: Chart title (empty string hides it and shrinks top margin).
+        height: Chart height in pixels.
+        show_legend: Whether to show the legend.
+        legend_title: Legend title text.
+        **overrides: Extra keys merged into the layout dict.
+
     Returns:
-        Dict with Plotly layout configuration
+        Dict ready to pass to ``fig.update_layout(**layout)``.
     """
-    layout = dict(
-        title=title,
-        height=height,
-        margin=dict(l=40, r=16, t=40 if title else 10, b=40),
-        paper_bgcolor=COLORS["bg_light"],
-        plot_bgcolor=COLORS["bg_light"],
-        font=dict(
-            family="Red Hat Display, sans-serif",
-            color=COLORS["text_primary"],
-            size=12,
-        ),
-        showlegend=show_legend,
-        yaxis=dict(gridcolor="#e0e0e0"),
-        xaxis=dict(gridcolor="#e0e0e0"),
-    )
+    layout = copy.deepcopy(PLOTLY_LAYOUT)
+    layout["title"] = title
+    layout["height"] = height
+    layout["showlegend"] = show_legend
+    if not title:
+        layout["margin"]["t"] = 10
     if legend_title:
         layout["legend_title_text"] = legend_title
+    layout.update(overrides)
     return layout
 
 
@@ -113,14 +111,25 @@ def build_vintage_line(df_vintage: pd.DataFrame, metric: str, title: str) -> go.
         )
 
     fig_line.update_layout(
-        title=title,
-        height=360,
-        margin=dict(l=10, r=10, t=40, b=40),
-        paper_bgcolor=COLORS["bg_light"],
-        plot_bgcolor=COLORS["bg_light"],
-        font=dict(family="Red Hat Display, sans-serif", color=COLORS["text_primary"]),
-        legend_title_text="Vintage",
-        yaxis=dict(title="Delinquência (%)", gridcolor="#e0e0e0"),
-        xaxis=dict(title="MOB", gridcolor="#e0e0e0", dtick=1),
+        **get_standard_layout(
+            title=title,
+            height=360,
+            legend_title="Vintage",
+            margin=dict(l=10, r=10, t=40, b=40),
+            yaxis=dict(
+                title="Delinquência (%)",
+                gridcolor=COLORS["table_border"],
+                gridwidth=0.5,
+                showline=False,
+                zeroline=False,
+            ),
+            xaxis=dict(
+                title="MOB",
+                showgrid=False,
+                showline=False,
+                zeroline=False,
+                dtick=1,
+            ),
+        )
     )
     return fig_line

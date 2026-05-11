@@ -1,0 +1,12 @@
+{
+  "name": "whitelabel-dashboard-tokens",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Style Dictionary build for the white-label dashboard design tokens. Transforms W3C DTCG JSON into CSS custom properties and a Python dict.",
+  "scripts": {
+    "build": "node build.js"
+  },
+  "devDependencies": {
+    "style-dictionary": "^4.0.0"
+  }
+}

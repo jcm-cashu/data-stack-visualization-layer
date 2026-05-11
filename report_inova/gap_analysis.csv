@@ -1,0 +1,16 @@
+Category,Current State,Best Practice Standard,Gap Priority,Notes After Refactor
+Visual Hierarchy,Heading levels + KPI summary rows at page top,"Size, position, color, contrast for emphasis",Low,KPI rows added via storytelling refactor
+Data-Ink Ratio,get_standard_layout applies data-ink defaults (no x-grid; light y-grid; no axis lines),"Maximize data-ink, minimize non-data elements",Low,Implemented in charts.py and sections.py
+Clutter Reduction,Centralized layout removes borders and gridlines; mode=lines on line charts,"Remove borders, gridlines, unnecessary markers",Low,Implemented
+Preattentive Attributes,Color emphasis via PLOTLY_COLORWAY; KPI values in accent orange; active states in primary yellow,"Use color, size, position to guide attention",Medium,Partially addressed; per-chart emphasis not yet implemented
+Color Accessibility,WCAG AA compliance validated; orange reserved for large text only,"WCAG AA minimum, AAA recommended",Low,Documented in design-system.md
+Chart Selection,Line for time series; bar for categorical; histogram for distribution,Context-based selection guide (comparison vs trend),Low,Visual selection matrix documented
+Typography Scale,Complete 6-level scale (32/24/18/14/12/11px) with Red Hat Display,Modular scale with clear hierarchy,Low,Unchanged
+Design Tokens,W3C DTCG JSON with primitive -> semantic -> component hierarchy,Primitive -> Semantic -> Component hierarchy,Low,design_tokens.json created
+Component Documentation,Props and variants documented in design-system.md; anatomy and states described,"Anatomy, states, usage examples, code",Low,Enhanced in design-system.md
+Semantic Naming,JSON uses semantic tokens; Python COLORS stays flat for composability,"Semantic tokens (e.g., color-background-primary)",Low,JSON handles hierarchy; Python stays simple
+Responsive Design,Streamlit auto-stacks columns; design-system.md documents breakpoints,Mobile-first with breakpoints,Medium,Documented but limited by Streamlit framework
+Loading States,Streamlit spinners + @st.cache_data with ttl=3600 on all data loading,Skeleton screens for >200ms loads,Medium,Caching added; skeleton screens not applicable in Streamlit
+Versioning,Semantic versioning documented in design-system.md,Semantic versioning with changelogs,Low,v2.0.0 documented
+Figma Integration,Style Dictionary pipeline (JSON -> CSS/Python); Tokens Studio workflow documented,Token sync via Tokens Studio or Variables,Low,tokens/ tooling created
+Agent Readiness,W3C DTCG JSON with $type/$value/$description; agent prompt template in design-system.md,"JSON format with $type, $value, $description",Low,Implemented

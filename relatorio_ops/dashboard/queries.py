@@ -28,7 +28,7 @@ def get_cashu_query(date_start: str, date_end: str) -> str:
         SELECT
             *
         FROM {CASHU_LIQUIDATIONS_TABLE}
-        WHERE anticipated_at::DATE BETWEEN '{date_start}' AND '{date_end}'  and cd_name_slug <> 'br_aco'
+        WHERE anticipated_at::DATE BETWEEN '{date_start}' AND '{date_end}'  and cd_name_slug not in ('br_aco','cencosud')
     """
 
 
@@ -68,7 +68,7 @@ def get_admin_liquidations_without_cashu_query(date_start: str, date_end: str) -
         t2.* exclude(nr_cnab_doc)
     FROM {CASHU_LIQUIDATIONS_TABLE} t1
     right JOIN {ADMIN_LIQUIDATIONS_TABLE} t2 ON t1.id_inv_fin_item = t2.id_inv_fin_item 
-    WHERE t2.pymt_info_date::date BETWEEN '{date_start}' AND '{date_end}' AND t1.pymt_date IS NULL
+    WHERE t2.pymt_info_date::date BETWEEN '{date_start}' AND '{date_end}' AND t1.pymt_date IS NULL and t1.nm_chgbk_ocurrence is null
     """
 
 def get_cashu_liquidations_without_admin_query(date_start: str, date_end: str) -> str:
@@ -78,7 +78,7 @@ def get_cashu_liquidations_without_admin_query(date_start: str, date_end: str) -
         	t1.*
         FROM {CASHU_LIQUIDATIONS_TABLE} t1
         left JOIN {ADMIN_LIQUIDATIONS_TABLE} t2 ON t1.id_inv_fin_item  = t2.id_inv_fin_item 
-        WHERE t1.pymt_date::date BETWEEN '{date_start}' AND '{date_end}' AND t1.pymt_date IS NOT NULL AND t2.id_inv_fin_item IS NULL AND t1.cd_name_slug  <> 'br_aco'
+        WHERE t1.pymt_date::date BETWEEN '{date_start}' AND '{date_end}' AND (t1.pymt_date IS NOT NULL or t1.nm_chgbk_ocurrence is not null) AND t2.id_inv_fin_item IS NULL AND t1.cd_name_slug  not in ('br_aco','cencosud')
    """
 
 def get_matching_liquidations_query(date_start: str, date_end: str) -> str:
@@ -101,5 +101,5 @@ def get_matching_liquidations_query(date_start: str, date_end: str) -> str:
         	t2.TP_LIQUIDATION
         FROM {CASHU_LIQUIDATIONS_TABLE} t1
         INNER JOIN {ADMIN_LIQUIDATIONS_TABLE} t2 ON t1.id_inv_fin_item  = t2.id_inv_fin_item 
-        WHERE t2.pymt_info_date::date BETWEEN '{date_start}' AND '{date_end}' AND t1.pymt_date::date IS NOT NULL AND (t1.cd_name_slug  <> 'br_aco' OR t1.cd_name_slug  IS NULL) 
+        WHERE t2.pymt_info_date::date BETWEEN '{date_start}' AND '{date_end}' AND t1.pymt_date::date IS NOT NULL AND (t1.cd_name_slug  not in ('br_aco','cencosud') OR t1.cd_name_slug  IS NULL) 
     """

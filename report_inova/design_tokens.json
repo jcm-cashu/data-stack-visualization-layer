@@ -1,0 +1,514 @@
+{
+  "$schema": "https://tr.designtokens.org/format/",
+  "$description": "W3C DTCG design tokens for the white-label Streamlit dashboard template. Color tiers: primitive (hex) → semantic (1:1 with shared/styles.py COLORS) → component (UI surfaces). Spacing matches SPACING; typography matches Red Hat Display usage.",
+  "color": {
+    "primitive": {
+      "$description": "Authoritative palette values. All hex literals live here only.",
+      "brand": {
+        "warmYellow": {
+          "$type": "color",
+          "$value": "#f5c344",
+          "$description": "Primary brand yellow; aligns with COLORS.primary and table header fill."
+        },
+        "violet": {
+          "$type": "color",
+          "$value": "#903aff",
+          "$description": "Secondary brand purple; charts, links, sidebar emphasis."
+        },
+        "orange": {
+          "$type": "color",
+          "$value": "#ff8a00",
+          "$description": "Accent orange; KPIs, primary control hover."
+        }
+      },
+      "feedback": {
+        "danger": {
+          "$type": "color",
+          "$value": "#cc3366",
+          "$description": "Destructive / high-attention alerts."
+        }
+      },
+      "neutral": {
+        "gray950": {
+          "$type": "color",
+          "$value": "#1a1a1a",
+          "$description": "Near-black; dark surfaces and high-contrast text on yellow fills."
+        },
+        "gray700": {
+          "$type": "color",
+          "$value": "#3b3b3b",
+          "$description": "Mid gray for elevated containers."
+        },
+        "gray150": {
+          "$type": "color",
+          "$value": "#f0f0f0",
+          "$description": "Subtle gray for table total rows."
+        },
+        "gray100": {
+          "$type": "color",
+          "$value": "#f7f7f7",
+          "$description": "Light app background."
+        },
+        "gray50": {
+          "$type": "color",
+          "$value": "#fafafa",
+          "$description": "Table zebra striping."
+        },
+        "gray200": {
+          "$type": "color",
+          "$value": "#e0e0e0",
+          "$description": "Borders and dividers."
+        },
+        "gray600": {
+          "$type": "color",
+          "$value": "#555555",
+          "$description": "Secondary text."
+        },
+        "black": {
+          "$type": "color",
+          "$value": "#000000",
+          "$description": "Primary body text."
+        },
+        "white": {
+          "$type": "color",
+          "$value": "#FFFFFF",
+          "$description": "Pure surface / chiclet background."
+        }
+      },
+      "surface": {
+        "creamHover": {
+          "$type": "color",
+          "$value": "#fff3d6",
+          "$description": "Warm hover wash for tables and secondary controls."
+        }
+      }
+    },
+    "semantic": {
+      "$description": "Semantic aliases matching COLORS keys in whitelabel_dashboard/shared/styles.py (1:1). Values reference color.primitive only.",
+      "primary": {
+        "$type": "color",
+        "$value": "{color.primitive.brand.warmYellow}",
+        "$description": "COLORS.primary — warm yellow highlights, primary controls."
+      },
+      "secondary": {
+        "$type": "color",
+        "$value": "{color.primitive.brand.violet}",
+        "$description": "COLORS.secondary — purple for charts and interactive emphasis."
+      },
+      "accent": {
+        "$type": "color",
+        "$value": "{color.primitive.brand.orange}",
+        "$description": "COLORS.accent — orange for KPIs and primary hover."
+      },
+      "danger": {
+        "$type": "color",
+        "$value": "{color.primitive.feedback.danger}",
+        "$description": "COLORS.danger — alert and destructive emphasis."
+      },
+      "bg_dark": {
+        "$type": "color",
+        "$value": "{color.primitive.neutral.gray950}",
+        "$description": "COLORS.bg_dark — off-black background option."
+      },
+      "bg_mid": {
+        "$type": "color",
+        "$value": "{color.primitive.neutral.gray700}",
+        "$description": "COLORS.bg_mid — medium gray containers."
+      },
+      "bg_light": {
+        "$type": "color",
+        "$value": "{color.primitive.neutral.gray100}",
+        "$description": "COLORS.bg_light — main application surface."
+      },
+      "bg_white": {
+        "$type": "color",
+        "$value": "{color.primitive.neutral.white}",
+        "$description": "COLORS.bg_white — cards and unselected chiclets."
+      },
+      "text_primary": {
+        "$type": "color",
+        "$value": "{color.primitive.neutral.black}",
+        "$description": "COLORS.text_primary — default body copy."
+      },
+      "text_secondary": {
+        "$type": "color",
+        "$value": "{color.primitive.neutral.gray600}",
+        "$description": "COLORS.text_secondary — de-emphasized copy and metric labels."
+      },
+      "table_header": {
+        "$type": "color",
+        "$value": "{color.primitive.brand.warmYellow}",
+        "$description": "COLORS.table_header — dataframe header background."
+      },
+      "table_header_text": {
+        "$type": "color",
+        "$value": "{color.primitive.neutral.gray950}",
+        "$description": "COLORS.table_header_text — text on yellow table headers."
+      },
+      "table_border": {
+        "$type": "color",
+        "$value": "{color.primitive.neutral.gray200}",
+        "$description": "COLORS.table_border — gridlines, chiclet borders, inputs."
+      },
+      "table_hover": {
+        "$type": "color",
+        "$value": "{color.primitive.surface.creamHover}",
+        "$description": "COLORS.table_hover — row hover and secondary button hover."
+      },
+      "table_stripe": {
+        "$type": "color",
+        "$value": "{color.primitive.neutral.gray50}",
+        "$description": "COLORS.table_stripe — alternating row wash."
+      },
+      "table_total": {
+        "$type": "color",
+        "$value": "{color.primitive.neutral.gray150}",
+        "$description": "COLORS.table_total — total row background."
+      },
+      "table_total_text": {
+        "$type": "color",
+        "$value": "{color.primitive.neutral.gray950}",
+        "$description": "COLORS.table_total_text — text on total rows (same hex as table_header_text)."
+      }
+    },
+    "component": {
+      "$description": "Composable UI roles. All $value entries reference color.semantic only.",
+      "button": {
+        "$description": "Streamlit button / chiclet pair (primary & secondary kinds).",
+        "primary": {
+          "background": {
+            "$type": "color",
+            "$value": "{color.semantic.primary}",
+            "$description": "Selected primary / chiclet fill."
+          },
+          "backgroundHover": {
+            "$type": "color",
+            "$value": "{color.semantic.accent}",
+            "$description": "Primary control hover fill (matches CSS)."
+          },
+          "foreground": {
+            "$type": "color",
+            "$value": "{color.semantic.text_primary}",
+            "$description": "Primary control label color."
+          },
+          "border": {
+            "$type": "color",
+            "$value": "{color.semantic.primary}",
+            "$description": "Primary control outline."
+          },
+          "borderHover": {
+            "$type": "color",
+            "$value": "{color.semantic.accent}",
+            "$description": "Primary control outline on hover."
+          }
+        },
+        "secondary": {
+          "background": {
+            "$type": "color",
+            "$value": "{color.semantic.bg_white}",
+            "$description": "Secondary / unselected chiclet fill."
+          },
+          "backgroundHover": {
+            "$type": "color",
+            "$value": "{color.semantic.table_hover}",
+            "$description": "Secondary control hover fill."
+          },
+          "foreground": {
+            "$type": "color",
+            "$value": "{color.semantic.text_primary}",
+            "$description": "Secondary control label color."
+          },
+          "border": {
+            "$type": "color",
+            "$value": "{color.semantic.table_border}",
+            "$description": "Secondary control outline."
+          },
+          "borderHover": {
+            "$type": "color",
+            "$value": "{color.semantic.primary}",
+            "$description": "Secondary control outline on hover."
+          }
+        }
+      },
+      "table": {
+        "$description": "Custom dataframe / table chrome (see get_table_styles).",
+        "header": {
+          "background": {
+            "$type": "color",
+            "$value": "{color.semantic.table_header}",
+            "$description": "Header row background."
+          },
+          "foreground": {
+            "$type": "color",
+            "$value": "{color.semantic.table_header_text}",
+            "$description": "Header row text."
+          }
+        },
+        "grid": {
+          "border": {
+            "$type": "color",
+            "$value": "{color.semantic.table_border}",
+            "$description": "Cell borders and Plotly gridlines."
+          }
+        },
+        "row": {
+          "hover": {
+            "$type": "color",
+            "$value": "{color.semantic.table_hover}",
+            "$description": "Hovered row background."
+          },
+          "stripe": {
+            "$type": "color",
+            "$value": "{color.semantic.table_stripe}",
+            "$description": "Zebra striping wash."
+          }
+        },
+        "total": {
+          "background": {
+            "$type": "color",
+            "$value": "{color.semantic.table_total}",
+            "$description": "Totals row background."
+          },
+          "foreground": {
+            "$type": "color",
+            "$value": "{color.semantic.table_total_text}",
+            "$description": "Totals row text (semantic key table_total_text)."
+          }
+        }
+      },
+      "chiclet": {
+        "$description": "Filter chip group — mirrors primary/secondary button styling; references semantic tokens only.",
+        "selected": {
+          "background": {
+            "$type": "color",
+            "$value": "{color.semantic.primary}",
+            "$description": "Selected filter chip fill."
+          },
+          "foreground": {
+            "$type": "color",
+            "$value": "{color.semantic.text_primary}",
+            "$description": "Selected chip label."
+          },
+          "border": {
+            "$type": "color",
+            "$value": "{color.semantic.primary}",
+            "$description": "Selected chip outline."
+          }
+        },
+        "unselected": {
+          "background": {
+            "$type": "color",
+            "$value": "{color.semantic.bg_white}",
+            "$description": "Idle chip fill."
+          },
+          "foreground": {
+            "$type": "color",
+            "$value": "{color.semantic.text_primary}",
+            "$description": "Idle chip label."
+          },
+          "border": {
+            "$type": "color",
+            "$value": "{color.semantic.table_border}",
+            "$description": "Idle chip outline."
+          }
+        },
+        "hover": {
+          "selected": {
+            "background": {
+              "$type": "color",
+              "$value": "{color.semantic.accent}",
+              "$description": "Primary chip hover fill."
+            },
+            "border": {
+              "$type": "color",
+              "$value": "{color.semantic.accent}",
+              "$description": "Primary chip hover outline."
+            }
+          },
+          "unselected": {
+            "background": {
+              "$type": "color",
+              "$value": "{color.semantic.table_hover}",
+              "$description": "Secondary chip hover fill."
+            },
+            "border": {
+              "$type": "color",
+              "$value": "{color.semantic.primary}",
+              "$description": "Secondary chip hover outline."
+            }
+          }
+        }
+      },
+      "metric": {
+        "$description": "st.metric value and label styling.",
+        "value": {
+          "foreground": {
+            "$type": "color",
+            "$value": "{color.semantic.accent}",
+            "$description": "Metric value emphasis (accent orange)."
+          }
+        },
+        "label": {
+          "foreground": {
+            "$type": "color",
+            "$value": "{color.semantic.text_secondary}",
+            "$description": "Metric caption / label."
+          }
+        }
+      },
+      "sidebar": {
+        "$description": "Navigation rail and sidebar typography colors.",
+        "surface": {
+          "background": {
+            "$type": "color",
+            "$value": "{color.semantic.bg_light}",
+            "$description": "Sidebar panel background."
+          }
+        },
+        "nav": {
+          "link": {
+            "foreground": {
+              "$type": "color",
+              "$value": "{color.semantic.text_primary}",
+              "$description": "Default nav button text."
+            },
+            "foregroundHover": {
+              "$type": "color",
+              "$value": "{color.semantic.secondary}",
+              "$description": "Nav hover underline color."
+            },
+            "foregroundSelected": {
+              "$type": "color",
+              "$value": "{color.semantic.secondary}",
+              "$description": "Active nav item color."
+            }
+          }
+        }
+      }
+    }
+  },
+  "spacing": {
+    "$description": "Spacing scale from SPACING in styles.py (4px base).",
+    "xs": {
+      "$type": "dimension",
+      "$value": { "value": 4, "unit": "px" },
+      "$description": "SPACING.xs"
+    },
+    "sm": {
+      "$type": "dimension",
+      "$value": { "value": 8, "unit": "px" },
+      "$description": "SPACING.sm"
+    },
+    "md": {
+      "$type": "dimension",
+      "$value": { "value": 16, "unit": "px" },
+      "$description": "SPACING.md"
+    },
+    "lg": {
+      "$type": "dimension",
+      "$value": { "value": 24, "unit": "px" },
+      "$description": "SPACING.lg"
+    },
+    "xl": {
+      "$type": "dimension",
+      "$value": { "value": 32, "unit": "px" },
+      "$description": "SPACING.xl"
+    },
+    "2xl": {
+      "$type": "dimension",
+      "$value": { "value": 48, "unit": "px" },
+      "$description": "SPACING.2xl"
+    }
+  },
+  "typography": {
+    "$description": "Red Hat Display stack; sizes align with Streamlit headings, body, and chiclet controls.",
+    "fontFamily": {
+      "display": {
+        "$type": "fontFamily",
+        "$value": ["Red Hat Display", "sans-serif"],
+        "$description": "Primary UI and marketing typeface (matches Google Fonts import)."
+      }
+    },
+    "fontSize": {
+      "display": {
+        "$type": "dimension",
+        "$value": { "value": 32, "unit": "px" },
+        "$description": "Hero / large display size."
+      },
+      "title": {
+        "$type": "dimension",
+        "$value": { "value": 24, "unit": "px" },
+        "$description": "Page title / major section size."
+      },
+      "subtitle": {
+        "$type": "dimension",
+        "$value": { "value": 18, "unit": "px" },
+        "$description": "Secondary headings and lead text."
+      },
+      "body": {
+        "$type": "dimension",
+        "$value": { "value": 14, "unit": "px" },
+        "$description": "Default paragraph and table body (slightly below Streamlit dataframe 13px override)."
+      },
+      "caption": {
+        "$type": "dimension",
+        "$value": { "value": 12, "unit": "px" },
+        "$description": "Chiclets, Plotly tick labels, compact UI copy."
+      },
+      "micro": {
+        "$type": "dimension",
+        "$value": { "value": 11, "unit": "px" },
+        "$description": "Fine print and dense dashboards."
+      }
+    },
+    "fontWeight": {
+      "regular": {
+        "$type": "fontWeight",
+        "$value": 400,
+        "$description": "Body default."
+      },
+      "medium": {
+        "$type": "fontWeight",
+        "$value": 500,
+        "$description": "Sidebar nav, chiclet labels, metric labels."
+      },
+      "semibold": {
+        "$type": "fontWeight",
+        "$value": 600,
+        "$description": "H3 and supporting headings."
+      },
+      "bold": {
+        "$type": "fontWeight",
+        "$value": 700,
+        "$description": "H2, metric values."
+      },
+      "extrabold": {
+        "$type": "fontWeight",
+        "$value": 800,
+        "$description": "H1 display weight."
+      }
+    },
+    "lineHeight": {
+      "tight": {
+        "$type": "lineHeight",
+        "$value": 1.2,
+        "$description": "Chiclet buttons and compact controls (matches CSS line-height: 1.2)."
+      },
+      "snug": {
+        "$type": "lineHeight",
+        "$value": 1.25,
+        "$description": "Dense headings."
+      },
+      "normal": {
+        "$type": "lineHeight",
+        "$value": 1.35,
+        "$description": "Body copy default."
+      },
+      "relaxed": {
+        "$type": "lineHeight",
+        "$value": 1.5,
+        "$description": "Long-form readability."
+      }
+    }
+  }
+}

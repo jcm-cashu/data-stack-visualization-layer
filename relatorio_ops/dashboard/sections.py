@@ -426,7 +426,6 @@ def _render_admin_sem_cashu(df_admin_sem_cashu: pd.DataFrame) -> None:
     st.error(f"✗ {num_titulos} títulos do Administrador não encontrados no Sistema CashU.")
     
     df_tmp = df_admin_sem_cashu.copy()
-    print(df_tmp.columns)
 
     kanastra_entry_col = _first_existing_col(df_tmp, ["anticipation_date", "ref_date"])
     if kanastra_entry_col:

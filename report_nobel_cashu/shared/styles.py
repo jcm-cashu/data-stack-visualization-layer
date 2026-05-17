@@ -57,6 +57,9 @@ PLOTLY_CONFIG: dict = {
     "staticPlot": False,
 }
 
+# Snowflake Streamlit CSP blocks script-src 'unsafe-eval'; SVG mode avoids Plotly/WebGL eval.
+PLOTLY_RENDER_MODE = "svg"
+
 PLOTLY_LAYOUT: dict = {
     "height": 420,
     "margin": dict(l=40, r=16, t=40, b=40),

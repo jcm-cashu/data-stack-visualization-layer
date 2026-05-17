@@ -17,6 +17,7 @@ from shared.components import (
     PLOTLY_CONFIG,
     get_standard_layout,
     render_data_grid,
+    render_plotly_chart,
 )
 from shared.components.html_export import (
     collect_caption,
@@ -728,7 +729,7 @@ def _render_cedente_balanco(
                 wrap_label_chars=wrap_label_chars,
                 grand_total=grand_total,
             )
-            st.plotly_chart(fig_mix, use_container_width=True, config=PLOTLY_CONFIG)
+            render_plotly_chart(fig_mix)
             figs.append(fig_mix)
 
     with col_r:
@@ -947,7 +948,7 @@ def _render_concentration_block(
         wrap_label_chars=24,
         total_override=total if use_override else None,
     )
-    st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+    render_plotly_chart(fig)
 
     bar_agg = agg.head(max_categories).copy() if max_categories else agg.copy()
     bar_agg = bar_agg.sort_values("val", ascending=True)
@@ -1051,7 +1052,7 @@ def render_carteira() -> None:  # noqa: C901 - layout-heavy renderer
             color=COLORS["secondary"],
         )
         with c1:
-            st.plotly_chart(fig_foco, use_container_width=True, config=PLOTLY_CONFIG)
+            render_plotly_chart(fig_foco)
 
     if papel_df.empty:
         with c2:
@@ -1067,7 +1068,7 @@ def render_carteira() -> None:  # noqa: C901 - layout-heavy renderer
             color=COLORS["accent"],
         )
         with c2:
-            st.plotly_chart(fig_papel, use_container_width=True, config=PLOTLY_CONFIG)
+            render_plotly_chart(fig_papel)
 
     if sit_df.empty:
         with c3:
@@ -1083,7 +1084,7 @@ def render_carteira() -> None:  # noqa: C901 - layout-heavy renderer
             color=COLORS["primary"],
         )
         with c3:
-            st.plotly_chart(fig_sit, use_container_width=True, config=PLOTLY_CONFIG)
+            render_plotly_chart(fig_sit)
 
     collect_columns_start(3)
     if fig_foco is not None:
@@ -1152,7 +1153,7 @@ def render_carteira() -> None:  # noqa: C901 - layout-heavy renderer
             category_order=["A Vencer", "Vencido"],
         )
         with c1:
-            st.plotly_chart(fig_status, use_container_width=True, config=PLOTLY_CONFIG)
+            render_plotly_chart(fig_status)
 
     with c2:
         title_col, level_col = st.columns([2, 3], vertical_alignment="bottom")
@@ -1187,7 +1188,7 @@ def render_carteira() -> None:  # noqa: C901 - layout-heavy renderer
             category_order=faixa_a_vencer_df[col_av].tolist(),
         )
         with c2:
-            st.plotly_chart(fig_faixa_av, use_container_width=True, config=PLOTLY_CONFIG)
+            render_plotly_chart(fig_faixa_av)
 
     with c3:
         title_col, level_col = st.columns([2, 3], vertical_alignment="bottom")
@@ -1222,7 +1223,7 @@ def render_carteira() -> None:  # noqa: C901 - layout-heavy renderer
             category_order=faixa_vencidos_df[col_vc].tolist(),
         )
         with c3:
-            st.plotly_chart(fig_faixa_vc, use_container_width=True, config=PLOTLY_CONFIG)
+            render_plotly_chart(fig_faixa_vc)
 
     collect_columns_start(3)
     if fig_status is not None:

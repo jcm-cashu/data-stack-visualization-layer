@@ -1,6 +1,7 @@
 """AG Grid wrapper component for configurable table rendering."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -132,6 +133,135 @@ def _coerce_columns(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _is_snowflake_streamlit() -> bool:
+    """Heuristic for Streamlit-in-Snowflake runtime (SiS)."""
+    return os.path.isdir("/tmp/appRoot")
+
+
+def _apply_quick_filter(df: pd.DataFrame, text: str) -> pd.DataFrame:
+    if not text or not str(text).strip():
+        return df
+    needle = str(text).strip().lower()
+
+    def _row_matches(row: pd.Series) -> bool:
+        return any(
+            needle in str(v).lower()
+            for v in row
+            if v is not None and not (isinstance(v, float) and pd.isna(v))
+        )
+
+    mask = df.apply(_row_matches, axis=1)
+    return df.loc[mask]
+
+
+def _build_streamlit_column_config(
+    column_config: dict[str, GridColumnConfig | dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    """Map GridColumnConfig to st.column_config when Streamlit supports it."""
+    if not column_config:
+        return None
+    out: dict[str, Any] = {}
+    for col_name, col_cfg in column_config.items():
+        cfg = col_cfg if isinstance(col_cfg, GridColumnConfig) else GridColumnConfig(**col_cfg)
+        if cfg.hide:
+            continue
+        label = cfg.header_name or col_name
+        width = cfg.min_width or cfg.width
+        if width:
+            out[col_name] = st.column_config.TextColumn(label, width=min(int(width), 500))
+        else:
+            out[col_name] = st.column_config.TextColumn(label)
+    return out or None
+
+
+def _render_native_fallback(
+    table_df: pd.DataFrame,
+    key: str,
+    *,
+    pagination: bool,
+    page_size: int,
+    enable_quick_filter: bool,
+    quick_filter_placeholder: str,
+    pinned_bottom_rows: list[dict[str, Any]] | None,
+    column_config: dict[str, GridColumnConfig | dict[str, Any]] | None,
+    height: int | None,
+) -> None:
+    """Native Streamlit table path (SiS-safe): quick filter, pagination, totals row."""
+    if _is_snowflake_streamlit():
+        st.caption("Tabela nativa Streamlit (AG Grid não disponível no Snowflake).")
+    else:
+        st.caption(
+            "Modo tabela nativa. Para filtro/paginação avançados no local, "
+            "instale `streamlit-aggrid` (ver requirements.txt)."
+        )
+
+    quick_value = ""
+    if enable_quick_filter:
+        col_filter, _ = st.columns([3, 9])
+        with col_filter:
+            quick_value = st.text_input(
+                "Filtro rápido",
+                value="",
+                placeholder=quick_filter_placeholder,
+                key=f"{key}-quick-filter-native",
+                label_visibility="collapsed",
+            )
+
+    view_df = _apply_quick_filter(table_df, quick_value)
+    total_rows = len(view_df)
+
+    if pagination and total_rows > page_size:
+        total_pages = max(1, (total_rows + page_size - 1) // page_size)
+        page_key = f"{key}-page"
+        if page_key not in st.session_state:
+            st.session_state[page_key] = 0
+        c_prev, c_info, c_next = st.columns([1, 4, 1])
+        with c_prev:
+            if st.button("◀", key=f"{key}-page-prev", disabled=st.session_state[page_key] <= 0):
+                st.session_state[page_key] -= 1
+        with c_info:
+            st.caption(
+                f"Página {st.session_state[page_key] + 1} de {total_pages} "
+                f"({total_rows} linhas)"
+            )
+        with c_next:
+            if st.button(
+                "▶",
+                key=f"{key}-page-next",
+                disabled=st.session_state[page_key] >= total_pages - 1,
+            ):
+                st.session_state[page_key] += 1
+        page = min(st.session_state[page_key], total_pages - 1)
+        st.session_state[page_key] = page
+        start = page * page_size
+        page_df = view_df.iloc[start : start + page_size]
+    else:
+        page_df = view_df
+
+    st_col_cfg = _build_streamlit_column_config(column_config)
+    kwargs: dict[str, Any] = {
+        "use_container_width": True,
+        "hide_index": True,
+    }
+    if height is not None:
+        kwargs["height"] = height
+    if st_col_cfg:
+        kwargs["column_config"] = st_col_cfg
+
+    st.dataframe(page_df, **kwargs)
+
+    if pinned_bottom_rows:
+        totals_df = pd.DataFrame(pinned_bottom_rows)
+        totals_df = totals_df.reindex(columns=page_df.columns, fill_value="")
+        st.markdown("**Total**")
+        st.dataframe(
+            totals_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config=st_col_cfg,
+        )
+
+
 def _apply_column_config(
     gb: "GridOptionsBuilder",
     config: dict[str, GridColumnConfig | dict[str, Any]] | None,
@@ -216,11 +346,6 @@ def render_data_grid(
     if index_label and not isinstance(table_df.index, pd.RangeIndex):
         table_df = table_df.reset_index().rename(columns={"index": index_label})
 
-    if not _HAS_AGGRID:
-        st.warning("Dependência opcional `streamlit-aggrid` não instalada; usando tabela padrão.")
-        st.dataframe(table_df, use_container_width=True, hide_index=True)
-        return None
-
     preset_defaults = {
         "compact": {
             "min_height": 180,
@@ -262,17 +387,31 @@ def render_data_grid(
     if not enable_quick_filter:
         enable_quick_filter = preset["enable_quick_filter"]
 
-    effective_theme = grid_theme or get_design_system_grid_theme()
-    custom_css = _build_custom_css(effective_theme)
-
     if height is None:
         visible_rows = min(len(table_df), page_size) if pagination else len(table_df)
-        row_height = effective_theme.row_height
-        header_height = effective_theme.header_height
-        pager_height = effective_theme.pagination_height if pagination else 0
+        row_height = (grid_theme or get_design_system_grid_theme()).row_height
+        header_height = (grid_theme or get_design_system_grid_theme()).header_height
+        pager_height = (grid_theme or get_design_system_grid_theme()).pagination_height if pagination else 0
         padding = 8
         auto_height = header_height + (visible_rows * row_height) + pager_height + padding
         height = int(max(preset["min_height"], min(auto_height, preset["max_height"])))
+
+    if not _HAS_AGGRID or _is_snowflake_streamlit():
+        _render_native_fallback(
+            table_df,
+            key,
+            pagination=bool(pagination),
+            page_size=int(page_size),
+            enable_quick_filter=enable_quick_filter,
+            quick_filter_placeholder=quick_filter_placeholder,
+            pinned_bottom_rows=pinned_bottom_rows,
+            column_config=column_config,
+            height=height,
+        )
+        return None
+
+    effective_theme = grid_theme or get_design_system_grid_theme()
+    custom_css = _build_custom_css(effective_theme)
 
     if enable_quick_filter:
         # Keep quick filter left-aligned with a constrained width.

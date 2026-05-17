@@ -3,12 +3,14 @@ Chart components - DO NOT MODIFY
 Provides consistent chart styling and builders for Plotly charts.
 """
 import copy
+import inspect
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import streamlit as st
 
-from ..styles import COLORS, PLOTLY_CONFIG, PLOTLY_LAYOUT
+from ..styles import COLORS, PLOTLY_CONFIG, PLOTLY_LAYOUT, PLOTLY_RENDER_MODE
 
 PLOTLY_COLORWAY = [COLORS["secondary"], COLORS["accent"], COLORS["primary"], COLORS["danger"]]
 
@@ -133,3 +135,18 @@ def build_vintage_line(df_vintage: pd.DataFrame, metric: str, title: str) -> go.
         )
     )
     return fig_line
+
+
+def render_plotly_chart(fig: go.Figure, *, use_container_width: bool = True) -> None:
+    """Render a Plotly figure in Streamlit, using SVG when supported (Snowflake CSP).
+
+    ``render_mode`` belongs on ``st.plotly_chart``, not on ``plotly.express`` factories.
+    Older Streamlit builds omit that parameter; we skip it when unavailable.
+    """
+    kwargs: dict = {"use_container_width": use_container_width, "config": PLOTLY_CONFIG}
+    try:
+        if "render_mode" in inspect.signature(st.plotly_chart).parameters:
+            kwargs["render_mode"] = PLOTLY_RENDER_MODE
+    except (TypeError, ValueError):
+        pass
+    st.plotly_chart(fig, **kwargs)

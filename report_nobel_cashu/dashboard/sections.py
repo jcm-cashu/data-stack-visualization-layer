@@ -87,8 +87,8 @@ def _load_loan_tape() -> pd.DataFrame:
     for col in ("data_vencimento", "data_operacao", "data_hj"):
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors="coerce")
-    if "prazo" in df.columns:
-        df["prazo"] = pd.to_numeric(df["prazo"], errors="coerce").astype("Int64")
+    if "prazo_restante" in df.columns:
+        df["prazo_restante"] = pd.to_numeric(df["prazo_restante"], errors="coerce").astype("Int64")
     return df
 
 
@@ -132,7 +132,7 @@ def _pivot_faixa(
     dim_faixas: pd.DataFrame,
     *,
     row_col: str,
-    prazo_col: str = "prazo",
+    prazo_col: str = "prazo_restante",
     level: str = "macro",
 ) -> tuple[pd.DataFrame, list[str]]:
     """Pivot `valor_aberto` by ``row_col`` x ``faixa_<level>``.
@@ -181,7 +181,7 @@ def _agg_faixa(
     df: pd.DataFrame,
     dim_faixas: pd.DataFrame,
     *,
-    prazo_col: str = "prazo",
+    prazo_col: str = "prazo_restante",
     level: str = "inova",
 ) -> pd.DataFrame:
     """Merge the slice of the loan tape with `dim_faixas` and aggregate
@@ -793,7 +793,7 @@ def _render_operacao_detalhe(df: pd.DataFrame) -> None:
         ("situacao", "Situação"),
         ("data_operacao", "Data Operação"),
         ("data_vencimento", "Vencimento"),
-        ("prazo", "Prazo"),
+        ("prazo_restante", "Prazo Restante"),
         ("status_vencimento", "Status"),
         ("valor_nota", "Valor Nota"),
     ]
@@ -1120,9 +1120,9 @@ def render_carteira() -> None:  # noqa: C901 - layout-heavy renderer
     )
 
     # Vencido: inverte o sinal do prazo e descarta o 0 (somente atraso > 0).
-    if "status_vencimento" in df.columns and "prazo" in df.columns:
+    if "status_vencimento" in df.columns and "prazo_restante" in df.columns:
         df_vencido = df[df["status_vencimento"] == "Vencido"].copy()
-        df_vencido["prazo_atraso"] = -df_vencido["prazo"]
+        df_vencido["prazo_atraso"] = -df_vencido["prazo_restante"]
         df_vencido = df_vencido[df_vencido["prazo_atraso"] > 0]
     else:
         df_vencido = df.iloc[0:0].assign(prazo_atraso=pd.Series(dtype="Int64"))
@@ -1171,7 +1171,7 @@ def render_carteira() -> None:  # noqa: C901 - layout-heavy renderer
     level_av = _FAIXA_LEVELS[level_av_label]
     col_av = f"faixa_{level_av}"
     faixa_a_vencer_df = _agg_faixa(
-        df_a_vencer, dim_faixas, prazo_col="prazo", level=level_av
+        df_a_vencer, dim_faixas, prazo_col="prazo_restante", level=level_av
     )
     if faixa_a_vencer_df.empty:
         with c2:
@@ -1345,10 +1345,10 @@ def render_carteira() -> None:  # noqa: C901 - layout-heavy renderer
     # -------------------------------------------------------------------------
     # 4. Grupo de Cedentes (pivot por faixa) - A Vencer
     # -------------------------------------------------------------------------
-    if "status_vencimento" in df.columns and "prazo" in df.columns:
+    if "status_vencimento" in df.columns and "prazo_restante" in df.columns:
         df_ced_av = df[df["status_vencimento"] == "A Vencer"]
-    elif "prazo" in df.columns:
-        df_ced_av = df[df["prazo"] >= 0]
+    elif "prazo_restante" in df.columns:
+        df_ced_av = df[df["prazo_restante"] >= 0]
     else:
         df_ced_av = df.iloc[0:0]
 
@@ -1357,7 +1357,7 @@ def render_carteira() -> None:  # noqa: C901 - layout-heavy renderer
         dim_faixas,
         title="Concentração por Grupo de Cedentes",
         caption="Carteira a vencer por grupo de cedentes, distribuída em faixas de prazo.",
-        prazo_col="prazo",
+        prazo_col="prazo_restante",
         radio_key="faixa_level_ced_av",
         grid_key_prefix="ced-faixa-grid-av",
     )
@@ -1368,9 +1368,9 @@ def render_carteira() -> None:  # noqa: C901 - layout-heavy renderer
     # -------------------------------------------------------------------------
     # 5. Grupo de Cedentes (pivot por faixa) - Vencidos
     # -------------------------------------------------------------------------
-    if "status_vencimento" in df.columns and "prazo" in df.columns:
+    if "status_vencimento" in df.columns and "prazo_restante" in df.columns:
         df_ced_vc = df[df["status_vencimento"] == "Vencido"].copy()
-        df_ced_vc["prazo_atraso"] = (-df_ced_vc["prazo"]).astype("Int64")
+        df_ced_vc["prazo_atraso"] = (-df_ced_vc["prazo_restante"]).astype("Int64")
         df_ced_vc = df_ced_vc[df_ced_vc["prazo_atraso"] > 0]
     else:
         df_ced_vc = df.iloc[0:0].assign(prazo_atraso=pd.Series(dtype="Int64"))

@@ -21,7 +21,7 @@ def get_loan_tape_query() -> str:
             foco,
             papel,
             status_vencimento,
-            prazo,
+            prazo_restante,
             situacao,
             cedente_grupo,
             nome_cedente,

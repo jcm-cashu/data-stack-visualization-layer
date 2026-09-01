@@ -36,6 +36,7 @@ from shared.styles import COLORS
 from . import queries
 from .dashboard_config import (
     AGING_LEVELS,
+    COHORT_BASIS_OPTIONS,
     DPD_EDGES,
     PD_HORIZON_OPTIONS,
     PDD_BY_BUCKET,
@@ -47,6 +48,39 @@ from .dashboard_config import (
 _MESES_MAP = {"Últimos 3 Meses": 3, "Últimos 6 Meses": 6, "Últimos 12 Meses": 12}
 _PD_DAYS_MAP = {"15 dias": 15, "30 dias": 30, "90 dias": 90}
 _WINDOW_DAYS_MAP = {"30 dias": 30, "45 dias": 45, "60 dias": 60, "90 dias": 90}
+
+_COHORT_COL = {"expiration": "data_vencimento", "acquisition": "data_antecipacao"}
+_COHORT_BY_LABEL = {"Por vencimento": "expiration", "Por aquisição": "acquisition"}
+_COHORT_TITLE = {"expiration": "safras por vencimento", "acquisition": "safras por aquisição"}
+
+_PERF_COLUMNS = [
+    "period",
+    "cohort_ead",
+    "eligible_ead",
+    "matured_ead_share",
+    "cohort_titles",
+    "eligible_titles",
+    "matured_titles_share",
+    "defaulted_ead",
+    "pd",
+    "lgd",
+    "pe",
+]
+
+_PERF_TABLE_LABELS = {
+    "period": "Período",
+    "cohort_ead": "EAD da safra",
+    "eligible_ead": "EAD elegível",
+    "matured_ead_share": "% maturado (EAD)",
+    "cohort_titles": "Nº títulos",
+    "eligible_titles": "Nº títulos elegíveis",
+    "matured_titles_share": "% maturado (títulos)",
+    "defaulted_ead": "EAD inadimplente",
+    "pd": "PD",
+    "lgd": "LGD",
+    "pe": "PE",
+}
+
 
 def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
@@ -250,46 +284,69 @@ def _compute_highlights(df: pd.DataFrame, ref_date: date) -> dict[str, float]:
     }
 
 
-def _perf_by_period(df: pd.DataFrame, ref_date: date, pd_days: int, period: str = "quarter") -> pd.DataFrame:
-    data = df.copy()
+def _perf_by_period(
+    df: pd.DataFrame,
+    ref_date: date,
+    pd_days: int,
+    period: str = "quarter",
+    cohort_by: str = "expiration",
+) -> pd.DataFrame:
+    """Value-weighted PD/LGD/PE per cohort period.
+
+    Cohorts are grouped either by due date (``expiration``) or by anticipation
+    date (``acquisition``), but eligibility always depends on the due date being
+    old enough for a title to be classifiable at the report snapshot. That is
+    what makes the acquisition view interpretable: recent cohorts are only
+    partially observed, and the maturity shares expose how much of each cohort
+    already entered the PD denominator.
+    """
+    cohort_col = _COHORT_COL[cohort_by]
     ref_ts = pd.Timestamp(ref_date)
+    data = df.copy()
+    data["cohort_dt"] = pd.to_datetime(data[cohort_col], errors="coerce")
+    data = data[data["cohort_dt"].notna()]
+    if data.empty:
+        return pd.DataFrame(columns=_PERF_COLUMNS)
+
     data["eligible"] = ((ref_ts - data["data_vencimento"]).dt.days > pd_days).astype(int)
     data["is_pd"] = (data["days_late"] > pd_days).astype(int)
     data["unpaid"] = data["data_pagamento"].isna().astype(int)
-    data = data[data["eligible"] == 1]
-    if data.empty:
-        return pd.DataFrame(columns=["period", "gmv", "ead_pd", "pd", "lgd", "pe"])
+    data["period_key"] = data["cohort_dt"].dt.to_period("Q" if period == "quarter" else "M")
 
-    monthly = data.groupby("year_month_expire", as_index=False).apply(
-        lambda x: pd.Series(
-            {
-                "gmv": x["valor_parcela"].sum(),
-                "ead_pd": (x["valor_parcela"] * x["is_pd"]).sum(),
-                "ead_pd_unp": (x["valor_parcela"] * x["is_pd"] * x["unpaid"]).sum(),
-            }
+    ead = pd.to_numeric(data["valor_parcela"], errors="coerce").fillna(0.0)
+    data["_ead"] = ead
+    data["_eligible_ead"] = ead * data["eligible"]
+    data["_defaulted_ead"] = data["_eligible_ead"] * data["is_pd"]
+    data["_defaulted_unpaid_ead"] = data["_defaulted_ead"] * data["unpaid"]
+
+    out = (
+        data.groupby("period_key", as_index=False)
+        .agg(
+            cohort_ead=("_ead", "sum"),
+            eligible_ead=("_eligible_ead", "sum"),
+            cohort_titles=("_ead", "size"),
+            eligible_titles=("eligible", "sum"),
+            defaulted_ead=("_defaulted_ead", "sum"),
+            defaulted_unpaid_ead=("_defaulted_unpaid_ead", "sum"),
         )
-    ).reset_index(drop=True)
+        .sort_values("period_key")
+    )
 
-    monthly["pd"] = monthly.apply(lambda r: _safe_div(r["ead_pd"], r["gmv"]), axis=1)
-    monthly["lgd"] = monthly.apply(lambda r: _safe_div(r["ead_pd_unp"], r["ead_pd"]), axis=1)
-    monthly["pe"] = monthly["pd"] * monthly["lgd"]
-
-    if period == "month":
-        return monthly.rename(columns={"year_month_expire": "period"})[["period", "gmv", "ead_pd", "pd", "lgd", "pe"]]
-
-    monthly["quarter"] = monthly["year_month_expire"].dt.to_period("Q").astype(str)
-    out = monthly.groupby("quarter", as_index=False).apply(
-        lambda x: pd.Series(
-            {
-                "gmv": x["gmv"].sum(),
-                "ead_pd": x["ead_pd"].sum(),
-                "pd": _weighted_average(x["pd"], x["gmv"]),
-                "lgd": _weighted_average(x["lgd"], x["ead_pd"].replace(0, np.nan)),
-            }
-        )
-    ).reset_index(drop=True)
+    out["matured_ead_share"] = out.apply(lambda r: _safe_div(r["eligible_ead"], r["cohort_ead"]), axis=1)
+    out["matured_titles_share"] = out.apply(lambda r: _safe_div(r["eligible_titles"], r["cohort_titles"]), axis=1)
+    out["pd"] = out.apply(lambda r: _safe_div(r["defaulted_ead"], r["eligible_ead"]), axis=1)
+    out["lgd"] = out.apply(lambda r: _safe_div(r["defaulted_unpaid_ead"], r["defaulted_ead"]), axis=1)
     out["pe"] = out["pd"] * out["lgd"]
-    return out.rename(columns={"quarter": "period"})
+
+    if cohort_by == "expiration":
+        out = out[out["eligible_ead"] > 0]
+
+    if period == "quarter":
+        out["period"] = out["period_key"].astype(str)
+    else:
+        out["period"] = out["period_key"].dt.to_timestamp()
+
+    return out[_PERF_COLUMNS].reset_index(drop=True)
 
 
 def _perf_by_rolling_window(df: pd.DataFrame, ref_date: date, pd_days: int, window_days: int, pe_days: int = 90) -> pd.DataFrame:
@@ -337,6 +394,95 @@ def _plot_metric_lines(df: pd.DataFrame, x_col: str, y_cols: list[str], title: s
     fig.update_layout(**get_standard_layout(title=title, legend_title="Métrica", margin=dict(l=40, r=16, t=64, b=40)))
     fig.update_yaxes(title=y_title)
     return fig
+
+
+def _plot_cohort_maturity(perf: pd.DataFrame, title: str) -> go.Figure:
+    data = perf[["period", "matured_ead_share"]].copy()
+    data["matured_ead_share"] = data["matured_ead_share"] * 100
+    fig = px.line(data, x="period", y="matured_ead_share", color_discrete_sequence=[COLORS["secondary"]], render_mode="svg")
+    fig.update_traces(mode="lines+markers")
+    fig.update_layout(**get_standard_layout(title=title, show_legend=False, margin=dict(l=40, r=16, t=64, b=40)))
+    fig.update_yaxes(title="% do EAD da safra elegível", range=[0, 100])
+    return fig
+
+
+def _render_quarterly_perf(
+    df: pd.DataFrame,
+    ref_date: date,
+    pd_days: int,
+    cohort_by: str,
+    *,
+    render_ui: bool = True,
+    collect: bool = True,
+) -> None:
+    """Render the quarterly PD/LGD/PE block for one cohort definition.
+
+    When *render_ui* is True, Streamlit widgets are created.
+    When *collect* is True, collector calls are made (for the HTML export).
+    """
+    perf = _perf_by_period(df, ref_date, pd_days=pd_days, period="quarter", cohort_by=cohort_by)
+    if perf.empty:
+        if render_ui:
+            st.info("Sem dados elegíveis para PD/LGD/PE trimestral.")
+        return
+
+    cohort_title = _COHORT_TITLE[cohort_by]
+    perf_pct = perf.copy()
+    for col in ("pd", "lgd", "pe"):
+        perf_pct[col] = perf_pct[col] * 100
+    perf_pct = perf_pct.rename(columns={"pd": "PD", "lgd": "LGD", "pe": "PE"})
+    fig = _plot_metric_lines(
+        perf_pct,
+        "period",
+        ["PD", "LGD", "PE"],
+        f"PD, LGD e PE {pd_days}+ por trimestre - {cohort_title}",
+    )
+
+    fig_maturity = (
+        _plot_cohort_maturity(perf, f"Fração maturada da safra - {cohort_title}")
+        if cohort_by == "acquisition"
+        else None
+    )
+
+    tbl = perf.rename(columns=_PERF_TABLE_LABELS)
+    tbl_grid = _format_grid_ptbr(
+        tbl.set_index("Período"),
+        currency_cols=["EAD da safra", "EAD elegível", "EAD inadimplente"],
+        integer_cols=["Nº títulos", "Nº títulos elegíveis"],
+        percent_cols=["% maturado (EAD)", "% maturado (títulos)", "PD", "LGD", "PE"],
+    )
+
+    if render_ui:
+        st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+        if fig_maturity is not None:
+            st.plotly_chart(fig_maturity, use_container_width=True, config=PLOTLY_CONFIG)
+        render_data_grid(
+            tbl_grid,
+            key=f"performance-quarterly-grid-{cohort_by}",
+            table_preset="standard",
+            index_label="Período",
+            pagination=False,
+            width="100%",
+            fit_columns_on_grid_load=False,
+            column_config={
+                "EAD da safra": GridColumnConfig(min_width=150, sortable=False),
+                "EAD elegível": GridColumnConfig(min_width=150, sortable=False),
+                "% maturado (EAD)": GridColumnConfig(min_width=150, sortable=False),
+                "Nº títulos": GridColumnConfig(min_width=110, sortable=False),
+                "Nº títulos elegíveis": GridColumnConfig(min_width=160, sortable=False),
+                "% maturado (títulos)": GridColumnConfig(min_width=170, sortable=False),
+                "EAD inadimplente": GridColumnConfig(min_width=160, sortable=False),
+                "PD": GridColumnConfig(min_width=100, sortable=False),
+                "LGD": GridColumnConfig(min_width=100, sortable=False),
+                "PE": GridColumnConfig(min_width=100, sortable=False),
+            },
+        )
+
+    if collect:
+        collect_chart(fig)
+        if fig_maturity is not None:
+            collect_chart(fig_maturity)
+        collect_dataframe(tbl_grid)
 
 
 def render_visao_geral() -> None:
@@ -770,41 +916,38 @@ def render_performance() -> None:
     pd_selector = chiclet_selector(PD_HORIZON_OPTIONS, key="pd_horizon_selector", default="30 dias", variant="buttons", group_max_fraction=0.5)
     pd_days = _PD_DAYS_MAP.get(pd_selector, 30)
 
-    st.subheader("PD e PE por trimestre")
-    collect_subheader("PD e PE por trimestre")
-    st.caption("PD e PE trimestrais ponderados por valor para o horizonte selecionado.")
-    collect_caption("PD e PE trimestrais ponderados por valor para o horizonte selecionado.")
-    perf_q = _perf_by_period(df, ref_date, pd_days=pd_days, period="quarter")
-    if perf_q.empty:
-        st.info("Sem dados elegíveis para PD/PE trimestral.")
-    else:
-        perf_q_pct = perf_q.copy()
-        perf_q_pct[["pd", "pe"]] = perf_q_pct[["pd", "pe"]] * 100
-        fig_q = _plot_metric_lines(perf_q_pct, "period", ["pd", "pe"], f"PD {pd_days}+ e PE {pd_days}+ por trimestre (ponderado por valor)")
-        st.plotly_chart(fig_q, use_container_width=True, config=PLOTLY_CONFIG)
-        collect_chart(fig_q)
-        tbl_q = perf_q.copy()
-        tbl_q_fmt = tbl_q.rename(columns={"period": "Período", "gmv": "GMV", "ead_pd": "EAD PD", "pd": "PD", "lgd": "LGD", "pe": "PE"})
-        tbl_q_grid = _format_grid_ptbr(
-            tbl_q_fmt.set_index("Período"),
-            currency_cols=["GMV", "EAD PD"],
-            percent_cols=["PD", "LGD", "PE"],
-        )
-        render_data_grid(
-            tbl_q_grid,
-            key="performance-quarterly-grid",
-            table_preset="standard",
-            index_label="Período",
-            pagination=False,
-            column_config={
-                "GMV": GridColumnConfig(min_width=140, sortable=False),
-                "EAD PD": GridColumnConfig(min_width=140, sortable=False),
-                "PD": GridColumnConfig(min_width=110, sortable=False),
-                "LGD": GridColumnConfig(min_width=110, sortable=False),
-                "PE": GridColumnConfig(min_width=110, sortable=False),
-            },
-        )
-        collect_dataframe(tbl_q_grid)
+    st.subheader("PD, LGD e PE por trimestre")
+    collect_subheader("PD, LGD e PE por trimestre")
+    _cohort_caption = (
+        "PD, LGD e PE trimestrais ponderados por valor para o horizonte selecionado. "
+        "A visão por vencimento agrupa os títulos pela data de vencimento; a visão por aquisição "
+        "agrupa pela data de antecipação, e apenas títulos com maturidade suficiente entram no "
+        "denominador de PD e PE."
+    )
+    st.caption(_cohort_caption)
+    collect_caption(_cohort_caption)
+
+    cohort_selector = chiclet_selector(
+        COHORT_BASIS_OPTIONS,
+        key="cohort_basis_selector",
+        default="Por vencimento",
+        variant="buttons",
+        group_max_fraction=0.5,
+    )
+    _render_quarterly_perf(
+        df,
+        ref_date,
+        pd_days,
+        _COHORT_BY_LABEL.get(cohort_selector, "expiration"),
+        render_ui=True,
+        collect=False,
+    )
+
+    collect_selector_start(COHORT_BASIS_OPTIONS, label="Base da safra")
+    for label in COHORT_BASIS_OPTIONS:
+        collect_selector_option(label)
+        _render_quarterly_perf(df, ref_date, pd_days, _COHORT_BY_LABEL[label], render_ui=False, collect=True)
+    collect_selector_end()
 
     st.divider()
     collect_divider()
@@ -827,10 +970,11 @@ def render_performance() -> None:
 
     perf_roll_pct = perf_roll.dropna(subset=["period"]).copy()
     perf_roll_pct[["pd", "pe"]] = perf_roll_pct[["pd", "pe"]] * 100
+    perf_roll_pct = perf_roll_pct.rename(columns={"pd": "PD", "pe": "PE"})
     fig_r = _plot_metric_lines(
         perf_roll_pct,
         "period",
-        ["pd", "pe"],
+        ["PD", "PE"],
         f"Janela móvel {window_days} dias - PD {pd_days}+ e PE",
     )
     st.plotly_chart(fig_r, use_container_width=True, config=PLOTLY_CONFIG)
